@@ -476,6 +476,30 @@ class DatabaseHelper {
     return rows.map(RegistroModel.fromMap).toList();
   }
 
+  Future<List<RegistroModel>> getAllRegistros() async {
+    if (kIsWeb) {
+      final baseUrl = await getConfig(DbConstants.cfgUrlApi) ?? ApiConstants.defaultBaseUrl;
+      final response = await http.get(Uri.parse('$baseUrl/api/sync/registros'));
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final list = (data['data'] as List).map((r) {
+          final map = Map<String, dynamic>.from(r);
+          map['sincronizado'] = 1;
+          return RegistroModel.fromMap(map);
+        }).toList();
+        return list;
+      }
+      return [];
+    }
+
+    final db = await database;
+    final rows = await db.query(
+      DbConstants.tableRegistros,
+      orderBy: 'fecha_hora DESC',
+    );
+    return rows.map(RegistroModel.fromMap).toList();
+  }
+
   Future<List<RegistroModel>> getRegistrosHoy() async {
     if (kIsWeb) {
       final baseUrl = await getConfig(DbConstants.cfgUrlApi) ?? ApiConstants.defaultBaseUrl;
@@ -633,6 +657,30 @@ class DatabaseHelper {
     final rows = await db.query(
       DbConstants.tablePermisos,
       where: 'sincronizado = 0',
+    );
+    return rows.map(PermisoModel.fromMap).toList();
+  }
+
+  Future<List<PermisoModel>> getAllPermisos() async {
+    if (kIsWeb) {
+      final baseUrl = await getConfig(DbConstants.cfgUrlApi) ?? ApiConstants.defaultBaseUrl;
+      final response = await http.get(Uri.parse('$baseUrl/api/sync/permisos'));
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final list = (data['data'] as List).map((p) {
+          final map = Map<String, dynamic>.from(p);
+          map['sincronizado'] = 1;
+          return PermisoModel.fromMap(map);
+        }).toList();
+        return list;
+      }
+      return [];
+    }
+
+    final db = await database;
+    final rows = await db.query(
+      DbConstants.tablePermisos,
+      orderBy: 'fecha_hora DESC',
     );
     return rows.map(PermisoModel.fromMap).toList();
   }

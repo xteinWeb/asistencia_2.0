@@ -93,23 +93,43 @@ def startup_event():
         except Exception as te:
             print(f"Nota al verificar/crear tabla usuarios_asistencia: {te}")
 
-        # 2. Verificar si hay usuarios
-        cursor.execute("SELECT COUNT(*) FROM usuarios_asistencia")
-        count = cursor.fetchone()[0]
-        
-        if count == 0:
-            print("[Database] La tabla usuarios_asistencia está vacía. Registrando administrador por defecto (admin/admin123)...")
+        # 2. Asegurar que 'admin' exista con la contraseña admin123, rol ADMIN y estado ACTIVO
+        print("[Database] Asegurando usuario 'admin'...")
+        cursor.execute("SELECT 1 FROM usuarios_asistencia WHERE usuario = %s", ('admin',))
+        if cursor.fetchone():
+            cursor.execute("""
+                UPDATE usuarios_asistencia 
+                SET nombre = %s, contrasena = %s, rol = %s, estado = %s, unidad_negocio = %s
+                WHERE usuario = %s
+            """, ('Administrador', 'admin123', 'ADMIN', 'ACTIVO', 'Principal', 'admin'))
+            print("[Database] Usuario 'admin' verificado/actualizado con éxito.")
+        else:
             cursor.execute("""
                 INSERT INTO usuarios_asistencia (usuario, nombre, contrasena, rol, estado, unidad_negocio)
                 VALUES (%s, %s, %s, %s, %s, %s)
             """, ('admin', 'Administrador', 'admin123', 'ADMIN', 'ACTIVO', 'Principal'))
-            print("[Database] ¡Administrador por defecto registrado con éxito centralmente!")
+            print("[Database] Usuario 'admin' registrado con éxito.")
+
+        # 3. Asegurar que 'galapa' exista con contraseña galapa2025, rol OPERADOR, unidad_negocio pl03 y estado ACTIVO
+        print("[Database] Asegurando usuario 'galapa'...")
+        cursor.execute("SELECT 1 FROM usuarios_asistencia WHERE usuario = %s", ('galapa',))
+        if cursor.fetchone():
+            cursor.execute("""
+                UPDATE usuarios_asistencia 
+                SET nombre = %s, contrasena = %s, rol = %s, estado = %s, unidad_negocio = %s
+                WHERE usuario = %s
+            """, ('Usuario Galapa', 'galapa2025', 'OPERADOR', 'ACTIVO', 'pl03', 'galapa'))
+            print("[Database] Usuario 'galapa' verificado/actualizado con éxito.")
         else:
-            print(f"[Database] Tabla usuarios_asistencia cuenta con {count} registros de acceso.")
+            cursor.execute("""
+                INSERT INTO usuarios_asistencia (usuario, nombre, contrasena, rol, estado, unidad_negocio)
+                VALUES (%s, %s, %s, %s, %s, %s)
+            """, ('galapa', 'Usuario Galapa', 'galapa2025', 'OPERADOR', 'ACTIVO', 'pl03'))
+            print("[Database] Usuario 'galapa' registrado con éxito.")
             
         conn.close()
     except Exception as e:
-        print(f"Error al verificar/sembrar administrador por defecto en SQL Server: {e}")
+        print(f"Error al verificar/sembrar usuarios por defecto en SQL Server: {e}")
 
 # ==============================================================================
 # 1. ENDPOINTS BIOMÉTRICOS

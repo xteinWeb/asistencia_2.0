@@ -67,10 +67,8 @@ class _PermisosPageState extends State<PermisosPage> {
         for (var e in empleados) e.cedula: e
       };
 
-      // 2. Cargar todos los permisos locales
-      final dbInstance = await _db.database;
-      final rows = await dbInstance.query(DbConstants.tablePermisos, orderBy: 'fecha_hora DESC');
-      final list = rows.map(PermisoModel.fromMap).toList();
+      // 2. Cargar todos los permisos de forma compatible tanto nativo como Web
+      final list = await _db.getAllPermisos();
 
       setState(() {
         _allPermisos = list;

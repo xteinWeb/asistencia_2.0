@@ -69,10 +69,8 @@ class _HistorialPageState extends State<HistorialPage> {
         for (var e in empleados) e.cedula: e
       };
 
-      // 2. Cargar todos los registros locales usando consulta directa a la base de datos
-      final dbInstance = await _db.database;
-      final rows = await dbInstance.query(DbConstants.tableRegistros, orderBy: 'fecha_hora DESC');
-      final listAll = rows.map(RegistroModel.fromMap).toList();
+      // 2. Cargar todos los registros de forma compatible tanto nativo como Web
+      final listAll = await _db.getAllRegistros();
 
       setState(() {
         _allRegistros = listAll;
