@@ -1,0 +1,380 @@
+import 'dart:async';
+import 'dart:convert';
+import 'package:http/http.dart' as http;
+
+import '../data/datasources/local/database_helper.dart';
+import '../core/constants/api_constants.dart';
+import '../core/constants/db_constants.dart';
+import 'connectivity_service.dart';
+import '../data/models/empleado_model.dart';
+import '../data/models/horario_model.dart';
+import '../data/models/usuario_model.dart';
+import '../data/models/permiso_model.dart';
+import '../data/models/registro_model.dart';
+
+/// Servicio de sincronización periódica y bidireccional.
+class SyncService {
+  final DatabaseHelper _db;
+  final ConnectivityService _connectivity;
+  Timer? _timer;
+  bool _isSyncing = false;
+
+  SyncService({
+    DatabaseHelper? db,
+    ConnectivityService? connectivity,
+  })  : _db = db ?? DatabaseHelper(),
+        _connectivity = connectivity ?? ConnectivityService();
+
+  /// Inicia la sincronización periódica cada [intervalMinutes] minutos.
+  void startPeriodicSync({int intervalMinutes = 15}) {
+    _timer?.cancel();
+    _timer = Timer.periodic(
+      Duration(minutes: intervalMinutes),
+      (_) => syncAll(),
+    );
+    // Sincronizar inmediatamente al iniciar
+    syncAll();
+  }
+
+  void stopSync() {
+    _timer?.cancel();
+    _timer = null;
+  }
+
+  /// Ejecuta el proceso completo de sincronización bidireccional:
+  /// 1. Push: Sube registros, permisos locales y enrolamientos a SQL Server.
+  /// 2. Pull: Descarga horarios, usuarios, empleados y permisos desde SQL Server.
+  Future<SyncResult> syncAll() async {
+    if (_isSyncing) return SyncResult(registros: 0, permisos: 0, errors: []);
+    _isSyncing = true;
+
+    final errors = <String>[];
+    int registrosSynced = 0;
+    int permisosSynced = 0;
+
+    try {
+      final connected = await _connectivity.isConnected();
+      if (!connected) {
+        return SyncResult(
+            registros: 0, permisos: 0, errors: ['Sin conexión a internet']);
+      }
+
+      final baseUrl = await _db.getConfig(DbConstants.cfgUrlApi) ??
+          ApiConstants.defaultBaseUrl;
+
+      // ─── FASE 1: SUBIR DATOS LOCALES (PUSH) ──────────────────────────
+      // Primero subimos los horarios para que existan en el servidor antes que los empleados
+      final hSync = await _pushHorarios(baseUrl);
+      errors.addAll(hSync);
+
+      // Luego subimos los enrolamientos de empleados para que ya existan con su información real
+      final eSync = await _pushEmpleados(baseUrl);
+      errors.addAll(eSync);
+
+      final rSync = await _syncRegistros(baseUrl);
+      registrosSynced = rSync.$1;
+      errors.addAll(rSync.$2);
+
+      final pSync = await _syncPermisos(baseUrl);
+      permisosSynced = pSync.$1;
+      errors.addAll(pSync.$2);
+
+      // ─── FASE 2: DESCARGAR DATOS CENTRALES (PULL) ─────────────────────
+      final pullH = await _pullHorarios(baseUrl);
+      errors.addAll(pullH);
+
+      final pullU = await _pullUsuarios(baseUrl);
+      errors.addAll(pullU);
+
+      final pullE = await _pullEmpleados(baseUrl);
+      errors.addAll(pullE);
+
+      final pullP = await _pullPermisos(baseUrl);
+      errors.addAll(pullP);
+
+      final pullR = await _pullRegistros(baseUrl);
+      errors.addAll(pullR);
+
+      return SyncResult(
+        registros: registrosSynced,
+        permisos: permisosSynced,
+        errors: errors,
+      );
+    } catch (e) {
+      return SyncResult(registros: 0, permisos: 0, errors: [e.toString()]);
+    } finally {
+      _isSyncing = false;
+    }
+  }
+
+  // ─── MÉTODOS DE SUBIDA (PUSH) ───────────────────────────────────────────
+
+  Future<List<String>> _pushHorarios(String baseUrl) async {
+    final errors = <String>[];
+    try {
+      final list = await _db.getAllHorarios();
+      if (list.isEmpty) return errors;
+
+      final uri = Uri.parse('$baseUrl/api/sync/horarios');
+      final body = jsonEncode(list.map((h) => h.toMap()).toList());
+      final response = await http
+          .post(uri,
+              headers: {'Content-Type': 'application/json'}, body: body)
+          .timeout(const Duration(milliseconds: ApiConstants.receiveTimeoutMs));
+
+      if (response.statusCode != 200 && response.statusCode != 201) {
+        errors.add('Error push horarios: ${response.statusCode}');
+      }
+    } catch (e) {
+      errors.add('Excepción push horarios: $e');
+    }
+    return errors;
+  }
+
+  Future<(int, List<String>)> _syncRegistros(String baseUrl) async {
+    final pendientes = await _db.getRegistrosPendientes();
+    if (pendientes.isEmpty) return (0, <String>[]);
+
+    final errors = <String>[];
+    int synced = 0;
+    final idsToSync = <String>[];
+
+    try {
+      final uri = Uri.parse('$baseUrl${ApiConstants.syncRegistros}');
+      final body = jsonEncode(pendientes.map((r) => r.toMap()).toList());
+      final response = await http
+          .post(uri,
+              headers: {'Content-Type': 'application/json'}, body: body)
+          .timeout(const Duration(milliseconds: ApiConstants.receiveTimeoutMs));
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        idsToSync.addAll(pendientes.where((r) => r.id != null).map((r) => r.id!));
+        synced = await _db.marcarRegistrosSincronizados(idsToSync);
+      } else {
+        errors.add('Error sync registros: ${response.statusCode}');
+      }
+    } catch (e) {
+      errors.add('Excepción sync registros: $e');
+    }
+
+    return (synced, errors);
+  }
+
+  Future<(int, List<String>)> _syncPermisos(String baseUrl) async {
+    final pendientes = await _db.getPermisosPendientes();
+    if (pendientes.isEmpty) return (0, <String>[]);
+
+    final errors = <String>[];
+    int synced = 0;
+
+    try {
+      final uri = Uri.parse('$baseUrl${ApiConstants.syncPermisos}');
+      final body = jsonEncode(pendientes.map((p) => p.toMap()).toList());
+      final response = await http
+          .post(uri,
+              headers: {'Content-Type': 'application/json'}, body: body)
+          .timeout(const Duration(milliseconds: ApiConstants.receiveTimeoutMs));
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        for (final p in pendientes) {
+          if (p.id != null) {
+            await _db.marcarPermisoSincronizado(p.id!);
+            synced++;
+          }
+        }
+      } else {
+        errors.add('Error sync permisos: ${response.statusCode}');
+      }
+    } catch (e) {
+      errors.add('Excepción sync permisos: $e');
+    }
+
+    return (synced, errors);
+  }
+
+  Future<List<String>> _pushEmpleados(String baseUrl) async {
+    final errors = <String>[];
+    try {
+      final list = await _db.getAllEmpleados();
+      // Empleados enrolados localmente (con vector facial) que no se hayan sincronizado
+      final pendientes = list.where((e) => e.mapaVectorFoto.isNotEmpty && !e.sincronizado).toList();
+      if (pendientes.isEmpty) return errors;
+
+      final uri = Uri.parse('$baseUrl/api/sync/empleados');
+      final body = jsonEncode(pendientes.map((e) => e.toMap()).toList());
+      final response = await http
+          .post(uri,
+              headers: {'Content-Type': 'application/json'}, body: body)
+          .timeout(const Duration(milliseconds: ApiConstants.receiveTimeoutMs));
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        for (final emp in pendientes) {
+          final updated = emp.copyWith(sincronizado: true);
+          await _db.updateEmpleado(updated);
+        }
+      } else {
+        errors.add('Error push empleados: ${response.statusCode}');
+      }
+    } catch (e) {
+      errors.add('Excepción push empleados: $e');
+    }
+    return errors;
+  }
+
+  // ─── MÉTODOS DE BAJADA (PULL) ───────────────────────────────────────────
+
+  Future<List<String>> _pullHorarios(String baseUrl) async {
+    final errors = <String>[];
+    try {
+      final uri = Uri.parse('$baseUrl/api/sync/horarios');
+      final response = await http.get(uri).timeout(const Duration(milliseconds: ApiConstants.receiveTimeoutMs));
+
+      if (response.statusCode == 200) {
+        final body = jsonDecode(response.body);
+        if (body['success'] == true) {
+          final data = body['data'] as List;
+          for (final item in data) {
+            final horario = HorarioModel.fromJson(item);
+            await _db.insertHorario(horario);
+          }
+        }
+      } else {
+        errors.add('Error pull horarios: ${response.statusCode}');
+      }
+    } catch (e) {
+      errors.add('Excepción pull horarios: $e');
+    }
+    return errors;
+  }
+
+  Future<List<String>> _pullUsuarios(String baseUrl) async {
+    final errors = <String>[];
+    try {
+      final uri = Uri.parse('$baseUrl/api/sync/usuarios');
+      final response = await http.get(uri).timeout(const Duration(milliseconds: ApiConstants.receiveTimeoutMs));
+
+      if (response.statusCode == 200) {
+        final body = jsonDecode(response.body);
+        if (body['success'] == true) {
+          final data = body['data'] as List;
+          for (final item in data) {
+            final usuario = UsuarioModel.fromJson(item);
+            await _db.insertUsuario(usuario);
+          }
+        }
+      } else {
+        errors.add('Error pull usuarios: ${response.statusCode}');
+      }
+    } catch (e) {
+      errors.add('Excepción pull usuarios: $e');
+    }
+    return errors;
+  }
+
+  Future<List<String>> _pullEmpleados(String baseUrl) async {
+    final errors = <String>[];
+    try {
+      final uri = Uri.parse('$baseUrl/api/sync/empleados');
+      final response = await http.get(uri).timeout(const Duration(milliseconds: ApiConstants.receiveTimeoutMs));
+
+      if (response.statusCode == 200) {
+        final body = jsonDecode(response.body);
+        if (body['success'] == true) {
+          final data = body['data'] as List;
+          for (final item in data) {
+            final serverEmp = EmpleadoModel.fromJson(item);
+            final localEmp = await _db.getEmpleadoByCedula(serverEmp.cedula);
+
+            EmpleadoModel finalEmp = serverEmp;
+            if (localEmp != null) {
+              if (!localEmp.sincronizado) {
+                // Si el empleado local no está sincronizado aún, el Kiosko local es la fuente de verdad.
+                // No sobreescribimos los datos locales reales con un registro cascarón vacío del servidor.
+                continue;
+              } else {
+                // Si ya está sincronizado, el servidor es la fuente de verdad.
+                finalEmp = serverEmp.copyWith(sincronizado: true);
+              }
+            } else {
+              // Si no existe en SQLite, lo insertamos
+              finalEmp = serverEmp.copyWith(sincronizado: true);
+            }
+            await _db.insertEmpleado(finalEmp);
+          }
+        }
+      } else {
+        errors.add('Error pull empleados: ${response.statusCode}');
+      }
+    } catch (e) {
+      errors.add('Excepción pull empleados: $e');
+    }
+    return errors;
+  }
+
+  Future<List<String>> _pullPermisos(String baseUrl) async {
+    final errors = <String>[];
+    try {
+      final uri = Uri.parse('$baseUrl/api/sync/permisos');
+      final response = await http.get(uri).timeout(const Duration(milliseconds: ApiConstants.receiveTimeoutMs));
+
+      if (response.statusCode == 200) {
+        final body = jsonDecode(response.body);
+        if (body['success'] == true) {
+          final data = body['data'] as List;
+          for (final item in data) {
+            final permiso = PermisoModel.fromJson(item).copyWith(sincronizado: true);
+            await _db.insertPermiso(permiso);
+          }
+        }
+      } else {
+        errors.add('Error pull permisos: ${response.statusCode}');
+      }
+    } catch (e) {
+      errors.add('Excepción pull permisos: $e');
+    }
+    return errors;
+  }
+
+  Future<List<String>> _pullRegistros(String baseUrl) async {
+    final errors = <String>[];
+    try {
+      final uri = Uri.parse('$baseUrl/api/sync/registros');
+      final response = await http.get(uri).timeout(const Duration(milliseconds: ApiConstants.receiveTimeoutMs));
+
+      if (response.statusCode == 200) {
+        final body = jsonDecode(response.body);
+        if (body['success'] == true) {
+          final data = body['data'] as List;
+          for (final item in data) {
+            final map = Map<String, dynamic>.from(item);
+            map['sincronizado'] = 1;
+            final registro = RegistroModel.fromJson(map);
+            await _db.insertRegistro(registro);
+          }
+        }
+      } else {
+        errors.add('Error pull registros: ${response.statusCode}');
+      }
+    } catch (e) {
+      errors.add('Excepción pull registros: $e');
+    }
+    return errors;
+  }
+}
+
+class SyncResult {
+  final int registros;
+  final int permisos;
+  final List<String> errors;
+  bool get hasErrors => errors.isNotEmpty;
+
+  SyncResult({
+    required this.registros,
+    required this.permisos,
+    required this.errors,
+  });
+
+  @override
+  String toString() =>
+      'SyncResult(registros: $registros, permisos: $permisos, errors: $errors)';
+}

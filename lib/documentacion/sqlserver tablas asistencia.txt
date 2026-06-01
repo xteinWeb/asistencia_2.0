@@ -1,0 +1,67 @@
+-- =========================================================================
+-- SCRIPT DE CREACIÓN DE TABLAS DE ASISTENCIA (SQL SERVER)
+-- =========================================================================
+
+-- 1. Tabla de Usuarios (Administradores/Operadores del Kiosko)
+CREATE TABLE usuarios_asistencia (
+    usuario VARCHAR(50) PRIMARY KEY,
+    nombre VARCHAR(150) NOT NULL,
+    contrasena VARCHAR(255) NOT NULL, -- Contraseña (encriptada/hash en prod)
+    rol VARCHAR(30) NOT NULL CHECK (rol IN ('ADMIN', 'OPERADOR', 'SOLO_LECTURA')),
+    estado VARCHAR(20) NOT NULL DEFAULT 'ACTIVO' CHECK (estado IN ('ACTIVO', 'INACTIVO')),
+    unidad_negocio VARCHAR(100) NOT NULL DEFAULT '',
+    fecha_creacion DATETIME NOT NULL DEFAULT GETDATE()
+);
+
+-- 2. Tabla de Horarios (Schedules para Empleados con UUID)
+CREATE TABLE horarios_asistencia (
+    id_horario UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWID(),
+    hora_inicio VARCHAR(10) NOT NULL, -- Formato HH:MM
+    hora_final VARCHAR(10) NOT NULL,  -- Formato HH:MM
+    tipo VARCHAR(50) NOT NULL CHECK (tipo IN ('LABORAL', 'ALMUERZO', 'DESCANSO')),
+    dias VARCHAR(100) NOT NULL,        -- Ejemplo: '1,2,3,4,5' (Lunes a Viernes)
+    fecha_creacion DATETIME NOT NULL DEFAULT GETDATE()
+);
+
+-- 3. Tabla de Empleados
+CREATE TABLE empleados_asistencia (
+    cedula VARCHAR(50) PRIMARY KEY,
+    nombre VARCHAR(150) NOT NULL,
+    mapa_vector_foto VARCHAR(MAX) NULL, -- JSON Array del vector biométrico de 128 floats
+    horario_id UNIQUEIDENTIFIER NULL FOREIGN KEY REFERENCES horarios_asistencia(id_horario),
+    fecha_ini_contrato VARCHAR(20) NULL,
+    fecha_fin_contrato VARCHAR(20) NULL,
+    fecha_creacion DATETIME NOT NULL DEFAULT GETDATE()
+);
+
+-- 4. Tabla de Registros de Asistencia (Marcaciones con UUID)
+CREATE TABLE registros_asistencia (
+    id UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWID(),
+    fecha_hora VARCHAR(30) NOT NULL, -- Fecha/Hora ISO de la marcación en la terminal
+    cedula VARCHAR(50) NOT NULL FOREIGN KEY REFERENCES empleados_asistencia(cedula),
+    evento VARCHAR(30) NOT NULL CHECK (evento IN ('ENTRADA', 'SALIDA')),
+    duracion VARCHAR(50) NULL,
+    tipo VARCHAR(30) NOT NULL CHECK (tipo IN ('NORMAL', 'RETARDO', 'ALMUERZO', 'SALIDA', 'PERMISO', 'EXTRAS')),
+    unidad_negocio VARCHAR(100) NOT NULL,
+    fecha_registro_servidor DATETIME NOT NULL DEFAULT GETDATE() -- Fecha de auditoría en servidor
+);
+
+-- 5. Tabla de Permisos Autorizados (con UUID)
+CREATE TABLE permisos_asistencia (
+    id UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWID(),
+    usuario_registrador VARCHAR(50) NOT NULL,
+    cedula_empleado VARCHAR(50) NOT NULL FOREIGN KEY REFERENCES empleados_asistencia(cedula),
+    fecha_hora VARCHAR(30) NOT NULL,
+    tipo VARCHAR(50) NOT NULL,
+    fecha_inicio VARCHAR(20) NOT NULL, -- Formato YYYY-MM-DD
+    fecha_final VARCHAR(20) NOT NULL,  -- Formato YYYY-MM-DD
+    fecha_registro_servidor DATETIME NOT NULL DEFAULT GETDATE()
+);
+
+-- 6. Tabla de Configuración de Terminales
+CREATE TABLE configuracion_terminal_asistencia (
+    terminal_id VARCHAR(50) NOT NULL,
+    clave VARCHAR(50) NOT NULL,
+    valor VARCHAR(255) NOT NULL,
+    PRIMARY KEY (terminal_id, clave)
+);

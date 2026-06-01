@@ -1,0 +1,63 @@
+import 'dart:io';
+import '../../data/datasources/local/database_helper.dart';
+import '../../data/models/empleado_model.dart';
+import '../../services/face_recognition_service.dart';
+import '../../services/connectivity_service.dart';
+
+/// Registra un nuevo empleado.
+/// REQUIERE INTERNET — genera el vector facial en el backend y lo guarda en SQLite.
+class RegistrarEmpleadoUseCase {
+  final DatabaseHelper _db;
+  final FaceRecognitionService _faceService;
+  final ConnectivityService _connectivity;
+
+  RegistrarEmpleadoUseCase({
+    DatabaseHelper? db,
+    FaceRecognitionService? faceService,
+    ConnectivityService? connectivity,
+  })  : _db = db ?? DatabaseHelper(),
+        _faceService = faceService ?? FaceRecognitionService(),
+        _connectivity = connectivity ?? ConnectivityService();
+
+  Future<EmpleadoModel> execute({
+    required String cedula,
+    required String nombre,
+    required String imagePath,
+    String? horarioId,
+    String? fechaIniContrato,
+    String? fechaFinContrato,
+  }) async {
+    // Verificar conexión
+    final connected = await _connectivity.isConnected();
+    if (!connected) {
+      throw Exception(
+          'El registro de empleados requiere conexión a internet.');
+    }
+
+    // Verificar que el archivo existe
+    if (!File(imagePath).existsSync()) {
+      throw Exception('Archivo de imagen no encontrado.');
+    }
+
+    // Generar vector en el backend Node.js
+    final vector = await _faceService.generarVectorDesdeImagen(imagePath);
+    if (vector.isEmpty) {
+      throw Exception('No se pudo generar el vector facial.');
+    }
+
+    // Crear modelo
+    final empleado = EmpleadoModel(
+      cedula: cedula,
+      nombre: nombre,
+      mapaVectorFoto: vector,
+      horarioId: horarioId,
+      fechaIniContrato: fechaIniContrato,
+      fechaFinContrato: fechaFinContrato,
+    );
+
+    // Guardar en SQLite local
+    await _db.insertEmpleado(empleado);
+
+    return empleado;
+  }
+}

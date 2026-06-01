@@ -1,0 +1,18 @@
+version: '3.8'
+
+services:
+  biometria_py:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: biometria_py
+    ports:
+      - "5901:5000"
+    restart: always
+    environment:
+      - DEEPFACE_HOME=/app
+    volumes:
+      - biometria_temp_faces:/app/temp_faces
+
+volumes:
+  biometria_temp_faces:
