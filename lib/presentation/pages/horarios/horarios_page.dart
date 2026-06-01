@@ -393,7 +393,7 @@ class _AddHorarioDialogState extends State<_AddHorarioDialog> {
             children: [
               // Tipo de Horario
               DropdownButtonFormField<String>(
-                value: _tipo,
+                initialValue: _tipo,
                 decoration: const InputDecoration(labelText: 'Tipo de Horario'),
                 items: const [
                   DropdownMenuItem(value: 'LABORAL', child: Text('Laboral')),

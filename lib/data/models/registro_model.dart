@@ -13,7 +13,7 @@ class RegistroModel extends Registro {
   });
 
   factory RegistroModel.fromMap(Map<String, dynamic> map) => RegistroModel(
-        id: map['id'] as String?,
+        id: (map['id'] as String?)?.toLowerCase(),
         fechaHora: map['fecha_hora'] as String,
         cedula: map['cedula'] as String,
         evento: map['evento'] as String,

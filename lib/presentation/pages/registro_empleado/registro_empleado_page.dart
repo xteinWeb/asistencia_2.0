@@ -474,7 +474,7 @@ class _RegistroEmpleadoPageState extends State<RegistroEmpleadoPage> {
 
                       // Selección de Horario
                       DropdownButtonFormField<String>(
-                        value: _horarios.any((h) => h.idHorario == _selectedHorarioId) ? _selectedHorarioId : null,
+                        initialValue: _horarios.any((h) => h.idHorario == _selectedHorarioId) ? _selectedHorarioId : null,
                         decoration: const InputDecoration(
                           labelText: 'Horario Asignado',
                           prefixIcon: Icon(Icons.schedule_outlined),

@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart';
+
 enum AppEnvironment {
   dev,
   prod,
@@ -10,17 +12,19 @@ class Environment {
   static const AppEnvironment active = AppEnvironment.dev;
 
   /// URL del servidor de desarrollo (Local).
-  /// - En Windows/iOS/Web: 'http://localhost:5900'
-  /// - En Emulador Android: 'http://10.0.2.2:5900'
-  /// - En dispositivo físico: Usar la IP de la máquina (ej: 'http://192.168.1.100:5900')
-  static const String devBaseUrl = 'https://api.dev.colchonessunmoon.com';
+  static const String devBaseUrl = 'http://192.168.11.46:5900';
 
   /// URL del servidor de producción.
-  /// Reemplaza este valor con tu dominio HTTPS real una vez que subas la API a la nube.
   static const String prodBaseUrl = 'https://tu-api-produccion.com';
 
   /// Retorna la URL base correspondiente al entorno activo.
   static String get apiUrl {
+    if (kIsWeb) {
+      // Resolver dinámicamente la IP o dominio del servidor en el que está corriendo
+      // la aplicación web para evitar IPs estáticas harcodeadas.
+      final uri = Uri.base;
+      return '${uri.scheme}://${uri.host}:5900';
+    }
     switch (active) {
       case AppEnvironment.dev:
         return devBaseUrl;

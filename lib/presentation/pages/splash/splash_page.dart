@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/routes/app_router.dart';
@@ -21,9 +22,12 @@ class _SplashPageState extends State<SplashPage> {
 
   Future<void> _initialize() async {
     try {
-      setState(() => _status = 'Inicializando base de datos...');
       final db = DatabaseHelper();
-      await db.database;
+
+      if (!kIsWeb) {
+        setState(() => _status = 'Inicializando base de datos...');
+        await db.database;
+      }
 
       setState(() => _status = 'Cargando configuración...');
       await db.getConfig('url_api');

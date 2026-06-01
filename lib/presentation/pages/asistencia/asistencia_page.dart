@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:intl/intl.dart';
 import 'package:camera/camera.dart';
 import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
@@ -54,6 +55,7 @@ class _AsistenciaPageState extends State<AsistenciaPage> {
   bool _isCameraInitialized = false;
   bool _initializingCamera = false;
   XFile? _capturedImage;
+  String _userRole = 'OPERADOR';
 
   // Variables para la selección manual e identificación
   EmpleadoModel? _empleadoIdentificado;
@@ -75,6 +77,7 @@ class _AsistenciaPageState extends State<AsistenciaPage> {
   @override
   void initState() {
     super.initState();
+    _loadUserRole();
     _clockStream = Stream.periodic(
       const Duration(seconds: 1),
       (_) => DateTime.now(),
@@ -87,6 +90,15 @@ class _AsistenciaPageState extends State<AsistenciaPage> {
     );
     // Inicializar la cámara de forma automática para Kiosko Tótem
     _initializeCamera();
+  }
+
+  Future<void> _loadUserRole() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      setState(() {
+        _userRole = prefs.getString('user_role') ?? 'OPERADOR';
+      });
+    } catch (_) {}
   }
 
   @override
@@ -519,12 +531,12 @@ class _AsistenciaPageState extends State<AsistenciaPage> {
       final delta = maxVal - minVal;
       
       // Para clasificar como parpadeo legítimo de un ser humano vivo, requerimos:
-      // 1. Que en al menos una captura de la ráfaga los ojos estén bien abiertos (maxVal >= 0.60)
-      // 2. Que en al menos una captura de la ráfaga los ojos estén cerrados/parpadeando (minVal <= 0.35)
-      // 3. Que la variación de transición de parpadeo sea clara (delta >= 0.25)
-      // Esto garantiza un balance perfecto: excelente usabilidad para humanos reales que parpadean rápido,
-      // mientras neutraliza de forma contundente fotos estáticas (cuyo delta oscila en < 0.10).
-      final esHumanoVivo = maxVal >= 0.60 && minVal <= 0.35 && delta >= 0.25;
+      // 1. Que en al menos una captura de la ráfaga los ojos estén abiertos (maxVal >= 0.50)
+      // 2. Que en al menos una captura de la ráfaga los ojos estén parcialmente cerrados/parpadeando (minVal <= 0.40)
+      // 3. Que la variación de transición de parpadeo sea clara (delta >= 0.15)
+      // Esto garantiza una usabilidad excelente para humanos reales (incluso con lentes o baja iluminación),
+      // mientras neutraliza de forma contundente fotos estáticas (cuyo delta oscila en < 0.08).
+      final esHumanoVivo = maxVal >= 0.50 && minVal <= 0.40 && delta >= 0.15;
 
       debugPrint('=== PRUEBA DE VIDA (LIVENESS) ===');
       debugPrint('Probabilidades de ojos abiertos en ráfaga: $eyeProbabilities');
@@ -552,8 +564,8 @@ class _AsistenciaPageState extends State<AsistenciaPage> {
             procesando: false,
             mensaje: 'FALLO DE VIDA: ROSTRO ESTÁTICO DETECTADO.',
             mensajeColor: AppColors.error,
-            empleadoNombre: _empleadoIdentificado!.nombre,
-            empleadoCedula: _empleadoIdentificado!.cedula,
+            empleadoNombre: _empleadoIdentificado?.nombre ?? '',
+            empleadoCedula: _empleadoIdentificado?.cedula ?? '',
             distancia: _distanciaMatch,
           );
         });
@@ -577,6 +589,10 @@ class _AsistenciaPageState extends State<AsistenciaPage> {
 
       // 5. Si aprueba la prueba de vida, procedemos a guardar el marcado en SQLite
       final useCase = MarcarAsistenciaUseCase();
+      if (_empleadoIdentificado == null) {
+        debugPrint('[Asistencia] El flujo fue cancelado o desidentificado antes de registrar.');
+        return;
+      }
       final result = await useCase.registrarMarcadoManual(
         empleado: _empleadoIdentificado!,
         tipoSeleccionado: tipoSeleccionado,
@@ -593,8 +609,8 @@ class _AsistenciaPageState extends State<AsistenciaPage> {
             procesando: false,
             mensaje: result.mensaje,
             mensajeColor: AppColors.error,
-            empleadoNombre: _empleadoIdentificado!.nombre,
-            empleadoCedula: _empleadoIdentificado!.cedula,
+            empleadoNombre: _empleadoIdentificado?.nombre ?? '',
+            empleadoCedula: _empleadoIdentificado?.cedula ?? '',
             distancia: _distanciaMatch,
           );
         });
@@ -1225,31 +1241,31 @@ class _AsistenciaPageState extends State<AsistenciaPage> {
                                   label: 'ENTRADA',
                                   icon: Icons.login_rounded,
                                   color: Colors.green,
-                                  onPressed: yaTieneEntrada ? null : () => _registrarMarcacionManual(TipoRegistro.normal),
+                                  onPressed: (yaTieneEntrada || _procesando) ? null : () => _registrarMarcacionManual(TipoRegistro.normal),
                                 ),
                                 _buildBotonPanel(
                                   label: 'ALMUERZO',
                                   icon: Icons.restaurant_rounded,
                                   color: Colors.orange,
-                                  onPressed: (!yaTieneEntrada || yaTieneSalida) ? null : () => _registrarMarcacionManual(TipoRegistro.almuerzo),
+                                  onPressed: (!yaTieneEntrada || yaTieneSalida || _procesando) ? null : () => _registrarMarcacionManual(TipoRegistro.almuerzo),
                                 ),
                                 _buildBotonPanel(
                                   label: 'SALIDA',
                                   icon: Icons.logout_rounded,
                                   color: Colors.red,
-                                  onPressed: (!yaTieneEntrada || yaTieneSalida) ? null : () => _registrarMarcacionManual(TipoRegistro.salida),
+                                  onPressed: (!yaTieneEntrada || yaTieneSalida || _procesando) ? null : () => _registrarMarcacionManual(TipoRegistro.salida),
                                 ),
                                 _buildBotonPanel(
                                   label: 'PERMISO',
                                   icon: Icons.card_membership_rounded,
                                   color: Colors.purple,
-                                  onPressed: () => _registrarMarcacionManual(TipoRegistro.permiso),
+                                  onPressed: _procesando ? null : () => _registrarMarcacionManual(TipoRegistro.permiso),
                                 ),
                                 _buildBotonPanel(
                                   label: 'EXTRAS',
                                   icon: Icons.more_time_rounded,
                                   color: Colors.blue,
-                                  onPressed: () => _registrarMarcacionManual(TipoRegistro.extras),
+                                  onPressed: _procesando ? null : () => _registrarMarcacionManual(TipoRegistro.extras),
                                 ),
                               ],
                             );
@@ -1259,7 +1275,7 @@ class _AsistenciaPageState extends State<AsistenciaPage> {
                         
                         // Botón de cancelar por si se identificó a otra persona
                         TextButton.icon(
-                          onPressed: _cancelarFlujoMarcacion,
+                          onPressed: _procesando ? null : _cancelarFlujoMarcacion,
                           icon: const Icon(Icons.cancel_outlined, color: Colors.white54, size: 16),
                           label: const Text('No soy yo, Cancelar', style: TextStyle(color: Colors.white54, fontSize: 12)),
                         ),

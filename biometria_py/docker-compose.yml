@@ -7,10 +7,15 @@ services:
       dockerfile: Dockerfile
     container_name: biometria_py
     ports:
-      - "5901:5000"
+      - "5900:5000"
     restart: always
     environment:
       - DEEPFACE_HOME=/app
+      - DB_SERVER=190.85.54.78
+      - DB_PORT=1433
+      - DB_USER=sa
+      - DB_PASSWORD=ADMadm1234
+      - DB_DATABASE=ARTDECON
     volumes:
       - biometria_temp_faces:/app/temp_faces
 

@@ -13,7 +13,7 @@ class PermisoModel extends Permiso {
   });
 
   factory PermisoModel.fromMap(Map<String, dynamic> map) => PermisoModel(
-        id: map['id'] as String?,
+        id: (map['id'] as String?)?.toLowerCase(),
         usuarioRegistrador: map['usuario_registrador'] as String,
         cedulaEmpleado: map['cedula_empleado'] as String,
         fechaHora: map['fecha_hora'] as String,

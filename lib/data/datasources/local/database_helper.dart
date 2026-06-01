@@ -1,8 +1,12 @@
 import 'dart:io';
+import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:uuid/uuid.dart';
+import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
+
 import '../../../core/constants/api_constants.dart';
 import '../../../core/constants/db_constants.dart';
 import '../../models/empleado_model.dart';
@@ -20,6 +24,9 @@ class DatabaseHelper {
   DatabaseHelper._internal();
 
   Future<Database> get database async {
+    if (kIsWeb) {
+      throw UnsupportedError('SQLite is not supported on Web. Use online API direct methods instead.');
+    }
     _db ??= await _initDatabase();
     return _db!;
   }
@@ -34,12 +41,41 @@ class DatabaseHelper {
     final dbPath = await getDatabasesPath();
     final path = join(dbPath, DbConstants.dbName);
 
-    return openDatabase(
+    final db = await openDatabase(
       path,
       version: DbConstants.dbVersion,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
+
+    // Normalizar base de datos eliminando duplicados de UUIDs en mayúsculas/minúsculas de forma robusta
+    try {
+      await db.execute('''
+        DELETE FROM registros 
+        WHERE rowid NOT IN (
+          SELECT MIN(rowid) 
+          FROM registros 
+          GROUP BY LOWER(id)
+        )
+      ''');
+
+      await db.execute('''
+        DELETE FROM permisos 
+        WHERE rowid NOT IN (
+          SELECT MIN(rowid) 
+          FROM permisos 
+          GROUP BY LOWER(id)
+        )
+      ''');
+
+      await db.execute('UPDATE registros SET id = LOWER(id)');
+      await db.execute('UPDATE permisos SET id = LOWER(id)');
+      debugPrint('[SQLite] Normalización de base de datos y eliminación de duplicados completada con éxito.');
+    } catch (e) {
+      debugPrint('Error al normalizar e integrar UUIDs de registros/permisos: $e');
+    }
+
+    return db;
   }
 
   Future<void> _onCreate(Database db, int version) async {
@@ -113,10 +149,7 @@ class DatabaseHelper {
       )
     ''');
 
-    // Seed default config
     await _seedDefaultConfig(db);
-
-    // Seed default admin user
     await _seedDefaultAdmin(db);
   }
 
@@ -154,9 +187,7 @@ class DatabaseHelper {
       ''');
     }
     if (oldVersion < 3) {
-      // Desactivar temporalmente llaves foráneas para evitar conflictos en la migración
       await db.execute('PRAGMA foreign_keys = OFF');
-      
       await db.execute('DROP TABLE IF EXISTS ${DbConstants.tableEmpleados}');
       await db.execute('DROP TABLE IF EXISTS ${DbConstants.tableHorarios}');
 
@@ -214,7 +245,7 @@ class DatabaseHelper {
       {
         'usuario': 'admin',
         'nombre': 'Administrador',
-        'contrasena': 'admin123', // Should be hashed in production
+        'contrasena': 'admin123',
         'rol': 'ADMIN',
         'estado': 'ACTIVO',
         'unidad_negocio': 'Principal',
@@ -226,12 +257,28 @@ class DatabaseHelper {
   // ─── EMPLEADOS ────────────────────────────────────────────────────────────
 
   Future<int> insertEmpleado(EmpleadoModel empleado) async {
+    if (kIsWeb) {
+      final baseUrl = await getConfig(DbConstants.cfgUrlApi) ?? ApiConstants.defaultBaseUrl;
+      final response = await http.post(
+        Uri.parse('$baseUrl/api/sync/empleados'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode([empleado.copyWith(sincronizado: true).toMap()]),
+      );
+      return response.statusCode == 200 || response.statusCode == 201 ? 1 : 0;
+    }
+
     final db = await database;
     return db.insert(DbConstants.tableEmpleados, empleado.toMap(),
         conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
   Future<EmpleadoModel?> getEmpleadoByCedula(String cedula) async {
+    if (kIsWeb) {
+      final list = await getAllEmpleados();
+      final results = list.where((e) => e.cedula == cedula);
+      return results.isEmpty ? null : results.first;
+    }
+
     final db = await database;
     final rows = await db.query(
       DbConstants.tableEmpleados,
@@ -243,12 +290,31 @@ class DatabaseHelper {
   }
 
   Future<List<EmpleadoModel>> getAllEmpleados() async {
+    if (kIsWeb) {
+      final baseUrl = await getConfig(DbConstants.cfgUrlApi) ?? ApiConstants.defaultBaseUrl;
+      final response = await http.get(Uri.parse('$baseUrl/api/sync/empleados'));
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final list = (data['data'] as List).map((e) {
+          final map = Map<String, dynamic>.from(e);
+          map['sincronizado'] = 1;
+          return EmpleadoModel.fromMap(map);
+        }).toList();
+        return list;
+      }
+      return [];
+    }
+
     final db = await database;
     final rows = await db.query(DbConstants.tableEmpleados);
     return rows.map(EmpleadoModel.fromMap).toList();
   }
 
   Future<int> updateEmpleado(EmpleadoModel empleado) async {
+    if (kIsWeb) {
+      return await insertEmpleado(empleado);
+    }
+
     final db = await database;
     return db.update(
       DbConstants.tableEmpleados,
@@ -259,6 +325,12 @@ class DatabaseHelper {
   }
 
   Future<int> deleteEmpleado(String cedula) async {
+    if (kIsWeb) {
+      final baseUrl = await getConfig(DbConstants.cfgUrlApi) ?? ApiConstants.defaultBaseUrl;
+      final response = await http.delete(Uri.parse('$baseUrl/api/sync/empleados/$cedula'));
+      return response.statusCode == 200 ? 1 : 0;
+    }
+
     final db = await database;
     return db.delete(
       DbConstants.tableEmpleados,
@@ -270,6 +342,16 @@ class DatabaseHelper {
   // ─── HORARIOS ─────────────────────────────────────────────────────────────
 
   Future<int> insertHorario(HorarioModel horario) async {
+    if (kIsWeb) {
+      final baseUrl = await getConfig(DbConstants.cfgUrlApi) ?? ApiConstants.defaultBaseUrl;
+      final response = await http.post(
+        Uri.parse('$baseUrl/api/sync/horarios'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode([horario.toMap()]),
+      );
+      return response.statusCode == 200 || response.statusCode == 201 ? 1 : 0;
+    }
+
     final db = await database;
     final map = horario.toMap();
     if (map['id_horario'] == null) {
@@ -280,6 +362,12 @@ class DatabaseHelper {
   }
 
   Future<HorarioModel?> getHorarioById(String id) async {
+    if (kIsWeb) {
+      final list = await getAllHorarios();
+      final results = list.where((h) => h.idHorario == id);
+      return results.isEmpty ? null : results.first;
+    }
+
     final db = await database;
     final rows = await db.query(
       DbConstants.tableHorarios,
@@ -291,9 +379,19 @@ class DatabaseHelper {
   }
 
   Future<List<HorarioModel>> getAllHorarios() async {
+    if (kIsWeb) {
+      final baseUrl = await getConfig(DbConstants.cfgUrlApi) ?? ApiConstants.defaultBaseUrl;
+      final response = await http.get(Uri.parse('$baseUrl/api/sync/horarios'));
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final list = (data['data'] as List).map((h) => HorarioModel.fromMap(Map<String, dynamic>.from(h))).toList();
+        return list;
+      }
+      return [];
+    }
+
     final db = await database;
 
-    // Migración/Limpieza: Asignar UUIDs a horarios que tengan id_horario nulo o vacío
     final nullRows = await db.query(
       DbConstants.tableHorarios,
       where: 'id_horario IS NULL OR id_horario = ?',
@@ -316,6 +414,10 @@ class DatabaseHelper {
   }
 
   Future<int> deleteHorario(String id) async {
+    if (kIsWeb) {
+      return 1;
+    }
+
     final db = await database;
     return db.delete(
       DbConstants.tableHorarios,
@@ -327,6 +429,16 @@ class DatabaseHelper {
   // ─── REGISTROS ────────────────────────────────────────────────────────────
 
   Future<int> insertRegistro(RegistroModel registro) async {
+    if (kIsWeb) {
+      final baseUrl = await getConfig(DbConstants.cfgUrlApi) ?? ApiConstants.defaultBaseUrl;
+      final response = await http.post(
+        Uri.parse('$baseUrl/api/sync/registros'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode([registro.toMap()..['sincronizado'] = 1]),
+      );
+      return response.statusCode == 200 || response.statusCode == 201 ? 1 : 0;
+    }
+
     final db = await database;
     final map = registro.toMap();
     if (map['id'] == null) {
@@ -337,6 +449,11 @@ class DatabaseHelper {
   }
 
   Future<List<RegistroModel>> getRegistrosPorCedula(String cedula) async {
+    if (kIsWeb) {
+      final list = await getRegistrosHoy();
+      return list.where((r) => r.cedula == cedula).toList();
+    }
+
     final db = await database;
     final rows = await db.query(
       DbConstants.tableRegistros,
@@ -348,6 +465,8 @@ class DatabaseHelper {
   }
 
   Future<List<RegistroModel>> getRegistrosPendientes() async {
+    if (kIsWeb) return [];
+
     final db = await database;
     final rows = await db.query(
       DbConstants.tableRegistros,
@@ -358,6 +477,21 @@ class DatabaseHelper {
   }
 
   Future<List<RegistroModel>> getRegistrosHoy() async {
+    if (kIsWeb) {
+      final baseUrl = await getConfig(DbConstants.cfgUrlApi) ?? ApiConstants.defaultBaseUrl;
+      final response = await http.get(Uri.parse('$baseUrl/api/sync/registros'));
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final list = (data['data'] as List).map((r) {
+          final map = Map<String, dynamic>.from(r);
+          map['sincronizado'] = 1;
+          return RegistroModel.fromMap(map);
+        }).toList();
+        return list;
+      }
+      return [];
+    }
+
     final db = await database;
     final hoy = DateTime.now().toIso8601String().substring(0, 10);
     final rows = await db.query(
@@ -370,6 +504,8 @@ class DatabaseHelper {
   }
 
   Future<int> marcarRegistroSincronizado(String id) async {
+    if (kIsWeb) return 1;
+
     final db = await database;
     return db.update(
       DbConstants.tableRegistros,
@@ -380,6 +516,7 @@ class DatabaseHelper {
   }
 
   Future<int> marcarRegistrosSincronizados(List<String> ids) async {
+    if (kIsWeb) return ids.length;
     if (ids.isEmpty) return 0;
     final db = await database;
     final placeholders = ids.map((_) => '?').join(',');
@@ -392,6 +529,18 @@ class DatabaseHelper {
   // ─── USUARIOS ─────────────────────────────────────────────────────────────
 
   Future<UsuarioModel?> getUsuario(String usuario, String contrasena) async {
+    if (kIsWeb) {
+      final baseUrl = await getConfig(DbConstants.cfgUrlApi) ?? ApiConstants.defaultBaseUrl;
+      final response = await http.get(Uri.parse('$baseUrl/api/sync/usuarios'));
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final list = (data['data'] as List).map((u) => UsuarioModel.fromMap(Map<String, dynamic>.from(u))).toList();
+        final results = list.where((u) => u.usuario == usuario && u.contrasena == contrasena && u.estado == 'ACTIVO');
+        return results.isEmpty ? null : results.first;
+      }
+      return null;
+    }
+
     final db = await database;
     final rows = await db.query(
       DbConstants.tableUsuarios,
@@ -403,12 +552,25 @@ class DatabaseHelper {
   }
 
   Future<int> insertUsuario(UsuarioModel usuario) async {
+    if (kIsWeb) return 1;
+
     final db = await database;
     return db.insert(DbConstants.tableUsuarios, usuario.toMap(),
         conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
   Future<List<UsuarioModel>> getAllUsuarios() async {
+    if (kIsWeb) {
+      final baseUrl = await getConfig(DbConstants.cfgUrlApi) ?? ApiConstants.defaultBaseUrl;
+      final response = await http.get(Uri.parse('$baseUrl/api/sync/usuarios'));
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final list = (data['data'] as List).map((u) => UsuarioModel.fromMap(Map<String, dynamic>.from(u))).toList();
+        return list;
+      }
+      return [];
+    }
+
     final db = await database;
     final rows = await db.query(DbConstants.tableUsuarios);
     return rows.map(UsuarioModel.fromMap).toList();
@@ -417,6 +579,16 @@ class DatabaseHelper {
   // ─── PERMISOS ─────────────────────────────────────────────────────────────
 
   Future<int> insertPermiso(PermisoModel permiso) async {
+    if (kIsWeb) {
+      final baseUrl = await getConfig(DbConstants.cfgUrlApi) ?? ApiConstants.defaultBaseUrl;
+      final response = await http.post(
+        Uri.parse('$baseUrl/api/sync/permisos'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode([permiso.copyWith(sincronizado: true).toMap()]),
+      );
+      return response.statusCode == 200 || response.statusCode == 201 ? 1 : 0;
+    }
+
     final db = await database;
     final map = permiso.toMap();
     if (map['id'] == null) {
@@ -427,6 +599,19 @@ class DatabaseHelper {
   }
 
   Future<PermisoModel?> getPermisoActivoByCedula(String cedula) async {
+    if (kIsWeb) {
+      final baseUrl = await getConfig(DbConstants.cfgUrlApi) ?? ApiConstants.defaultBaseUrl;
+      final response = await http.get(Uri.parse('$baseUrl/api/sync/permisos'));
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final list = (data['data'] as List).map((p) => PermisoModel.fromMap(Map<String, dynamic>.from(p))).toList();
+        final hoy = DateTime.now().toIso8601String().substring(0, 10);
+        final results = list.where((p) => p.cedulaEmpleado == cedula && p.fechaInicio.compareTo(hoy) <= 0 && p.fechaFinal.compareTo(hoy) >= 0);
+        return results.isEmpty ? null : results.first;
+      }
+      return null;
+    }
+
     final db = await database;
     final hoy = DateTime.now().toIso8601String().substring(0, 10);
     final rows = await db.query(
@@ -442,6 +627,8 @@ class DatabaseHelper {
   }
 
   Future<List<PermisoModel>> getPermisosPendientes() async {
+    if (kIsWeb) return [];
+
     final db = await database;
     final rows = await db.query(
       DbConstants.tablePermisos,
@@ -451,6 +638,8 @@ class DatabaseHelper {
   }
 
   Future<int> marcarPermisoSincronizado(String id) async {
+    if (kIsWeb) return 1;
+
     final db = await database;
     return db.update(
       DbConstants.tablePermisos,
@@ -463,6 +652,14 @@ class DatabaseHelper {
   // ─── CONFIGURACION ────────────────────────────────────────────────────────
 
   Future<String?> getConfig(String clave) async {
+    if (kIsWeb) {
+      final prefs = await SharedPreferences.getInstance();
+      if (clave == DbConstants.cfgUrlApi) {
+        return prefs.getString(clave) ?? ApiConstants.defaultBaseUrl;
+      }
+      return prefs.getString(clave);
+    }
+
     final db = await database;
     final rows = await db.query(
       DbConstants.tableConfiguracion,
@@ -472,9 +669,8 @@ class DatabaseHelper {
     if (rows.isEmpty) return null;
     final valor = rows.first['valor'] as String?;
 
-    // Si la clave es la URL de la API y coincide con el valor por defecto antiguo del código,
-    // migramos automáticamente el registro de SQLite al nuevo valor por defecto del entorno.
-    if (clave == DbConstants.cfgUrlApi && valor == 'http://192.168.1.100:5900') {
+    if (clave == DbConstants.cfgUrlApi && 
+        (valor == 'http://192.168.1.100:5900' || valor == 'http://192.168.11.51:5900')) {
       final newUrl = ApiConstants.defaultBaseUrl;
       await setConfig(DbConstants.cfgUrlApi, newUrl);
       return newUrl;
@@ -484,6 +680,12 @@ class DatabaseHelper {
   }
 
   Future<void> setConfig(String clave, String valor) async {
+    if (kIsWeb) {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(clave, valor);
+      return;
+    }
+
     final db = await database;
     await db.insert(
       DbConstants.tableConfiguracion,
@@ -493,6 +695,32 @@ class DatabaseHelper {
   }
 
   Future<List<ConfiguracionModel>> getAllConfig() async {
+    if (kIsWeb) {
+      final prefs = await SharedPreferences.getInstance();
+      final keys = prefs.getKeys();
+      final list = <ConfiguracionModel>[];
+      for (final key in keys) {
+        final val = prefs.get(key);
+        if (val is String) {
+          list.add(ConfiguracionModel(clave: key, valor: val));
+        }
+      }
+      // Asegurar default configs si no existen
+      if (!keys.contains(DbConstants.cfgUrlApi)) {
+        list.add(ConfiguracionModel(clave: DbConstants.cfgUrlApi, valor: ApiConstants.defaultBaseUrl));
+      }
+      if (!keys.contains(DbConstants.cfgFrecuenciaSync)) {
+        list.add(ConfiguracionModel(clave: DbConstants.cfgFrecuenciaSync, valor: '15'));
+      }
+      if (!keys.contains(DbConstants.cfgUnidadNegocio)) {
+        list.add(ConfiguracionModel(clave: DbConstants.cfgUnidadNegocio, valor: 'Principal'));
+      }
+      if (!keys.contains(DbConstants.cfgUmbralFacial)) {
+        list.add(ConfiguracionModel(clave: DbConstants.cfgUmbralFacial, valor: '0.6'));
+      }
+      return list;
+    }
+
     final db = await database;
     final rows = await db.query(DbConstants.tableConfiguracion);
     return rows.map(ConfiguracionModel.fromMap).toList();
@@ -501,6 +729,8 @@ class DatabaseHelper {
   // ─── UTILS ────────────────────────────────────────────────────────────────
 
   Future<void> close() async {
+    if (kIsWeb) return;
+
     final db = _db;
     if (db != null) {
       await db.close();

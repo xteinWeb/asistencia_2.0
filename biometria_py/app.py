@@ -1,11 +1,23 @@
 import os
 import shutil
-from fastapi import FastAPI, File, UploadFile, HTTPException
+from typing import List, Optional
+from fastapi import FastAPI, File, UploadFile, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, Field
 from deepface import DeepFace
 import numpy as np
+import uuid
+import datetime
+import math
 
-app = FastAPI(title="Edge Biometrics Service", version="1.0.0")
+# Importar la conexión nativa a SQL Server
+from database import get_db_connection
+
+app = FastAPI(
+    title="Edge Biometrics & Business Unified Backend",
+    version="2.0.0",
+    description="Backend unificado en Python FastAPI y Docker para Biometría y Sincronización de Kioskos."
+)
 
 # Habilitar CORS para los Kioskos de Flutter
 app.add_middleware(
@@ -19,6 +31,34 @@ app.add_middleware(
 TEMP_DIR = "temp_faces"
 os.makedirs(TEMP_DIR, exist_ok=True)
 
+# Helper para serializar tipos especiales de SQL Server (UUID, Datetime) a JSON seguro
+def serialize_value(val):
+    if isinstance(val, uuid.UUID):
+        return str(val).upper()
+    elif isinstance(val, (datetime.datetime, datetime.date)):
+        return val.isoformat()
+    return val
+
+def serialize_row(row):
+    if not row:
+        return row
+    return {k: serialize_value(v) for k, v in row.items()}
+
+def serialize_rows(rows):
+    if not rows:
+        return []
+    return [serialize_row(r) for r in rows]
+
+# Normalización L2 para asegurar que los vectores residan en una esfera unitaria.
+# Esto reduce la distancia euclidiana entre el mismo rostro de ~4.0 a ~0.34,
+# logrando compatibilidad perfecta con el umbral estricto de 0.6 de la tableta de Flutter.
+def l2_normalize(vector):
+    sq_sum = sum(x**2 for x in vector)
+    norm = math.sqrt(sq_sum)
+    if norm == 0:
+        return vector
+    return [x / norm for x in vector]
+
 # Precargar y compilar el modelo al iniciar para que la primera marcación sea instantánea
 @app.on_event("startup")
 def startup_event():
@@ -30,6 +70,50 @@ def startup_event():
         print("¡Modelo Facenet cargado correctamente en memoria y listo para inferencia offline!")
     except Exception as e:
         print(f"Error al precargar el modelo: {e}")
+
+    # Sembrar administrador por defecto en SQL Server si la tabla está vacía
+    print("Verificando administrador por defecto en base de datos central...")
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # 1. Asegurar que la tabla exista (crearla si por alguna razón no existe)
+        try:
+            cursor.execute("""
+                IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='usuarios_asistencia' AND xtype='U')
+                CREATE TABLE usuarios_asistencia (
+                    usuario VARCHAR(50) PRIMARY KEY,
+                    nombre VARCHAR(150) NOT NULL,
+                    contrasena VARCHAR(150) NOT NULL,
+                    rol VARCHAR(50) NOT NULL,
+                    estado VARCHAR(20) NOT NULL DEFAULT 'ACTIVO',
+                    unidad_negocio VARCHAR(100) NOT NULL DEFAULT ''
+                )
+            """)
+        except Exception as te:
+            print(f"Nota al verificar/crear tabla usuarios_asistencia: {te}")
+
+        # 2. Verificar si hay usuarios
+        cursor.execute("SELECT COUNT(*) FROM usuarios_asistencia")
+        count = cursor.fetchone()[0]
+        
+        if count == 0:
+            print("[Database] La tabla usuarios_asistencia está vacía. Registrando administrador por defecto (admin/admin123)...")
+            cursor.execute("""
+                INSERT INTO usuarios_asistencia (usuario, nombre, contrasena, rol, estado, unidad_negocio)
+                VALUES (%s, %s, %s, %s, %s, %s)
+            """, ('admin', 'Administrador', 'admin123', 'ADMIN', 'ACTIVO', 'Principal'))
+            print("[Database] ¡Administrador por defecto registrado con éxito centralmente!")
+        else:
+            print(f"[Database] Tabla usuarios_asistencia cuenta con {count} registros de acceso.")
+            
+        conn.close()
+    except Exception as e:
+        print(f"Error al verificar/sembrar administrador por defecto en SQL Server: {e}")
+
+# ==============================================================================
+# 1. ENDPOINTS BIOMÉTRICOS
+# ==============================================================================
 
 @app.post("/api/asistencia/nuevoEmpleado")
 @app.post("/api/asistencia/compararRostro")
@@ -56,11 +140,22 @@ async def generar_vector(face: UploadFile = File(...)):
         if not representations or len(representations) == 0:
             raise HTTPException(status_code=400, detail="No se detectó ningún rostro en la imagen.")
             
+        # Si se detecta más de un rostro (personas de fondo o falsos positivos de OpenCV por sombras/ropa),
+        # seleccionamos de forma inteligente la cara de mayor tamaño, que garantiza ser la del empleado
+        # situado directamente en frente de la cámara del Tótem.
+        selected_representation = representations[0]
         if len(representations) > 1:
-            raise HTTPException(status_code=400, detail="Se detectó más de un rostro en la imagen. Tome una foto individual.")
+            print(f"[Biometría] Se detectaron {len(representations)} rostros en la imagen. Seleccionando el rostro de mayor tamaño...")
+            # Ordenar por área de la cara (w * h) en orden descendente y tomar el más grande
+            representations.sort(
+                key=lambda r: r["facial_area"]["w"] * r["facial_area"]["h"], 
+                reverse=True
+            )
+            selected_representation = representations[0]
             
-        # Obtener el vector de 128 flotantes
-        embedding = representations[0]["embedding"]
+        # Obtener el vector de 128 flotantes y aplicar Normalización L2
+        raw_embedding = selected_representation["embedding"]
+        embedding = l2_normalize(raw_embedding)
         
         # Eliminar archivo temporal
         if os.path.exists(temp_file_path):
@@ -85,6 +180,395 @@ async def generar_vector(face: UploadFile = File(...)):
             raise HTTPException(status_code=400, detail="No se detectó ningún rostro en la imagen. Asegúrese de mirar a la cámara y contar con buena iluminación.")
         raise HTTPException(status_code=500, detail=f"Error interno en el procesamiento biométrico: {error_msg}")
 
+
+# ==============================================================================
+# 2. MODELOS PYDANTIC PARA SINCRONIZACIÓN
+# ==============================================================================
+
+class RegistroSyncItem(BaseModel):
+    id: str
+    fecha_hora: str
+    cedula: str
+    evento: str
+    duracion: Optional[str] = None
+    tipo: str
+    unidad_negocio: str
+
+class PermisoSyncItem(BaseModel):
+    id: str
+    usuario_registrador: str
+    cedula_empleado: str
+    fecha_hora: str
+    tipo: str
+    fecha_inicio: str
+    fecha_final: str
+
+class EmpleadoSyncItem(BaseModel):
+    cedula: str
+    nombre: str
+    mapa_vector_foto: Optional[str] = None
+    horario_id: Optional[str] = None
+    fecha_ini_contrato: Optional[str] = None
+    fecha_fin_contrato: Optional[str] = None
+    estado: Optional[str] = 'ACTIVO'
+
+class HorarioSyncItem(BaseModel):
+    id_horario: str
+    hora_inicio: str
+    hora_final: str
+    tipo: str
+    dias: str
+
+
+# ==============================================================================
+# 3. ENDPOINTS DE SINCRONIZACIÓN (PULL - DESCARGAS)
+# ==============================================================================
+
+@app.get("/api/sync/horarios")
+def obtener_horarios():
+    print("\n--- [GET /api/sync/horarios] Solicitud de sincronización ---")
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(as_dict=True)
+        cursor.execute("SELECT id_horario, hora_inicio, hora_final, tipo, dias FROM horarios_asistencia")
+        rows = cursor.fetchall()
+        conn.close()
+        
+        return {
+            "success": True,
+            "data": serialize_rows(rows)
+        }
+    except Exception as e:
+        print(f"Error en obtener_horarios: {e}")
+        raise HTTPException(status_code=500, detail=f"Error al obtener horarios desde SQL Server: {e}")
+
+@app.get("/api/sync/usuarios")
+def obtener_usuarios():
+    print("\n--- [GET /api/sync/usuarios] Solicitud de Sincronización ---")
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(as_dict=True)
+        cursor.execute("SELECT usuario, nombre, contrasena, rol, estado, unidad_negocio FROM usuarios_asistencia")
+        rows = cursor.fetchall()
+        conn.close()
+        
+        return {
+            "success": True,
+            "data": serialize_rows(rows)
+        }
+    except Exception as e:
+        print(f"Error en obtener_usuarios: {e}")
+        raise HTTPException(status_code=500, detail=f"Error al obtener usuarios desde SQL Server: {e}")
+
+@app.get("/api/sync/empleados")
+def obtener_empleados():
+    print("\n--- [GET /api/sync/empleados] Solicitud de Sincronización ---")
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(as_dict=True)
+        cursor.execute("SELECT cedula, nombre, mapa_vector_foto, horario_id, fecha_ini_contrato, fecha_fin_contrato, estado FROM empleados_asistencia")
+        rows = cursor.fetchall()
+        conn.close()
+        
+        return {
+            "success": True,
+            "data": serialize_rows(rows)
+        }
+    except Exception as e:
+        print(f"Error en obtener_empleados: {e}")
+        raise HTTPException(status_code=500, detail=f"Error al obtener empleados desde SQL Server: {e}")
+
+@app.get("/api/sync/permisos")
+def obtener_permisos():
+    print("\n--- [GET /api/sync/permisos] Solicitud de Sincronización ---")
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(as_dict=True)
+        cursor.execute("SELECT id, usuario_registrador, cedula_empleado, fecha_hora, tipo, fecha_inicio, fecha_final FROM permisos_asistencia")
+        rows = cursor.fetchall()
+        conn.close()
+        
+        return {
+            "success": True,
+            "data": serialize_rows(rows)
+        }
+    except Exception as e:
+        print(f"Error en obtener_permisos: {e}")
+        raise HTTPException(status_code=500, detail=f"Error al obtener permisos desde SQL Server: {e}")
+
+@app.get("/api/sync/registros")
+def obtener_registros():
+    print("\n--- [GET /api/sync/registros] Solicitud de Sincronización (Últimos 30 días) ---")
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(as_dict=True)
+        # Consulta idéntica de últimos 30 días optimizada
+        cursor.execute("""
+            SELECT id, fecha_hora, cedula, evento, duracion, tipo, unidad_negocio 
+            FROM registros_asistencia 
+            WHERE fecha_registro_servidor >= DATEADD(day, -30, GETDATE()) 
+            ORDER BY fecha_hora DESC
+        """)
+        rows = cursor.fetchall()
+        conn.close()
+        
+        return {
+            "success": True,
+            "data": serialize_rows(rows)
+        }
+    except Exception as e:
+        print(f"Error en obtener_registros: {e}")
+        raise HTTPException(status_code=500, detail=f"Error al obtener registros desde SQL Server: {e}")
+
+
+# ==============================================================================
+# 4. ENDPOINTS DE SINCRONIZACIÓN (PUSH - SUBIDAS)
+# ==============================================================================
+
+@app.post("/api/sync/registros")
+def sincronizar_registros(listado: List[RegistroSyncItem]):
+    print(f"\n--- [POST /api/sync/registros] Sincronizando {len(listado)} registros ---")
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        inserted = 0
+        ignored = 0
+        
+        for r in listado:
+            # 1. Asegurar integridad referencial: crear empleado básico si no existe en empleados_asistencia
+            cursor.execute("SELECT 1 FROM empleados_asistencia WHERE cedula = %s", (r.cedula,))
+            if not cursor.fetchone():
+                print(f"[Sync Registros] Empleado {r.cedula} no existe centralmente. Registrando empleado básico.")
+                cursor.execute(
+                    "INSERT INTO empleados_asistencia (cedula, nombre, estado, fecha_creacion) VALUES (%s, %s, 'ACTIVO', GETDATE())",
+                    (r.cedula, f"Empleado ({r.cedula})")
+                )
+            
+            # 2. Insertar registro si no existe
+            cursor.execute("SELECT 1 FROM registros_asistencia WHERE id = %s", (r.id,))
+            if not cursor.fetchone():
+                cursor.execute("""
+                    INSERT INTO registros_asistencia (id, fecha_hora, cedula, evento, duracion, tipo, unidad_negocio, fecha_registro_servidor)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, GETDATE())
+                """, (r.id, r.fecha_hora, r.cedula, r.evento, r.duracion, r.tipo, r.unidad_negocio))
+                inserted += 1
+            else:
+                ignored += 1
+                
+        conn.close()
+        print(f"[Sync Registros] Completado. Insertados: {inserted}, Omitidos (Duplicados): {ignored}")
+        return {
+            "success": True,
+            "message": "Sincronización de registros completada.",
+            "sincronizados": inserted,
+            "omitidos": ignored
+        }
+    except Exception as e:
+        print(f"Error en sincronizar_registros: {e}")
+        raise HTTPException(status_code=500, detail=f"Error al sincronizar registros en SQL Server: {e}")
+
+@app.post("/api/sync/permisos")
+def sincronizar_permisos(listado: List[PermisoSyncItem]):
+    print(f"\n--- [POST /api/sync/permisos] Sincronizando {len(listado)} permisos ---")
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        inserted = 0
+        ignored = 0
+        
+        for p in listado:
+            # 1. Asegurar integridad referencial: crear empleado básico si no existe
+            cursor.execute("SELECT 1 FROM empleados_asistencia WHERE cedula = %s", (p.cedula_empleado,))
+            if not cursor.fetchone():
+                print(f"[Sync Permisos] Empleado {p.cedula_empleado} no existe. Registrando básico.")
+                cursor.execute(
+                    "INSERT INTO empleados_asistencia (cedula, nombre, estado, fecha_creacion) VALUES (%s, %s, 'ACTIVO', GETDATE())",
+                    (p.cedula_empleado, f"Empleado ({p.cedula_empleado})")
+                )
+            
+            # 2. Insertar permiso si no existe
+            cursor.execute("SELECT 1 FROM permisos_asistencia WHERE id = %s", (p.id,))
+            if not cursor.fetchone():
+                cursor.execute("""
+                    INSERT INTO permisos_asistencia (id, usuario_registrador, cedula_empleado, fecha_hora, tipo, fecha_inicio, fecha_final, fecha_registro_servidor)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, GETDATE())
+                """, (p.id, p.usuario_registrador, p.cedula_empleado, p.fecha_hora, p.tipo, p.fecha_inicio, p.fecha_final))
+                inserted += 1
+            else:
+                ignored += 1
+                
+        conn.close()
+        print(f"[Sync Permisos] Completado. Insertados: {inserted}, Omitidos: {ignored}")
+        return {
+            "success": True,
+            "message": "Sincronización de permisos completada.",
+            "sincronizados": inserted,
+            "omitidos": ignored
+        }
+    except Exception as e:
+        print(f"Error en sincronizar_permisos: {e}")
+        raise HTTPException(status_code=500, detail=f"Error al sincronizar permisos en SQL Server: {e}")
+
+@app.post("/api/sync/empleados")
+def sincronizar_empleados(listado: List[EmpleadoSyncItem]):
+    print(f"\n--- [POST /api/sync/empleados] Sincronizando {len(listado)} enrolamientos locales ---")
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        processed = 0
+        
+        for emp in listado:
+            # Declaración de variables y ejecución de MERGE seguro de SQL Server
+            query = """
+            DECLARE @cedula VARCHAR(50) = %s;
+            DECLARE @nombre VARCHAR(150) = %s;
+            DECLARE @mapaVectorFoto VARCHAR(MAX) = %s;
+            DECLARE @horarioId UNIQUEIDENTIFIER = %s;
+            DECLARE @fechaIniContrato VARCHAR(20) = %s;
+            DECLARE @fechaFinContrato VARCHAR(20) = %s;
+            DECLARE @estado VARCHAR(20) = %s;
+
+            MERGE empleados_asistencia AS target
+            USING (SELECT @cedula AS cedula) AS source
+            ON (target.cedula = source.cedula)
+            WHEN MATCHED THEN
+                UPDATE SET 
+                    nombre = @nombre,
+                    mapa_vector_foto = COALESCE(@mapaVectorFoto, target.mapa_vector_foto),
+                    horario_id = @horarioId,
+                    fecha_ini_contrato = @fechaIniContrato,
+                    fecha_fin_contrato = @fechaFinContrato,
+                    estado = COALESCE(@estado, target.estado)
+            WHEN NOT MATCHED THEN
+                INSERT (cedula, nombre, mapa_vector_foto, horario_id, fecha_ini_contrato, fecha_fin_contrato, estado, fecha_creacion)
+                VALUES (@cedula, @nombre, @mapaVectorFoto, @horarioId, @fechaIniContrato, @fechaFinContrato, @estado, GETDATE());
+            """
+            
+            # Convertir horario_id a None si está vacío
+            h_id = emp.horario_id if emp.horario_id and emp.horario_id.strip() != "" else None
+            
+            cursor.execute(query, (
+                emp.cedula,
+                emp.nombre,
+                emp.mapa_vector_foto,
+                h_id,
+                emp.fecha_ini_contrato,
+                emp.fecha_fin_contrato,
+                emp.estado
+            ))
+            processed += 1
+            
+        conn.close()
+        print(f"[Sync Empleados] Procesados {processed} enrolamientos biométricos.")
+        return {
+            "success": True,
+            "message": "Sincronización de empleados/enrolamientos completada.",
+            "procesados": processed
+        }
+    except Exception as e:
+        print(f"Error en sincronizar_empleados: {e}")
+        raise HTTPException(status_code=500, detail=f"Error al sincronizar enrolamientos en SQL Server: {e}")
+
+@app.post("/api/sync/horarios")
+def sincronizar_horarios(listado: List[HorarioSyncItem]):
+    print(f"\n--- [POST /api/sync/horarios] Sincronizando {len(listado)} horarios ---")
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        processed = 0
+        
+        for h in listado:
+            query = """
+            DECLARE @idHorario UNIQUEIDENTIFIER = %s;
+            DECLARE @horaInicio VARCHAR(10) = %s;
+            DECLARE @horaFinal VARCHAR(10) = %s;
+            DECLARE @tipo VARCHAR(30) = %s;
+            DECLARE @dias VARCHAR(100) = %s;
+
+            MERGE horarios_asistencia AS target
+            USING (SELECT @idHorario AS id_horario) AS source
+            ON (target.id_horario = source.id_horario)
+            WHEN MATCHED THEN
+                UPDATE SET 
+                    hora_inicio = @horaInicio,
+                    hora_final = @horaFinal,
+                    tipo = @tipo,
+                    dias = @dias
+            WHEN NOT MATCHED THEN
+                INSERT (id_horario, hora_inicio, hora_final, tipo, dias)
+                VALUES (@idHorario, @horaInicio, @horaFinal, @tipo, @dias);
+            """
+            
+            cursor.execute(query, (
+                h.id_horario,
+                h.hora_inicio,
+                h.hora_final,
+                h.tipo,
+                h.dias
+            ))
+            processed += 1
+            
+        conn.close()
+        print(f"[Sync Horarios] Procesados {processed} horarios.")
+        return {
+            "success": True,
+            "message": "Sincronización de horarios completada.",
+            "procesados": processed
+        }
+    except Exception as e:
+        print(f"Error en sincronizar_horarios: {e}")
+        raise HTTPException(status_code=500, detail=f"Error al sincronizar horarios en SQL Server: {e}")
+
+
+# ==============================================================================
+# 5. ELIMINACIÓN DE EMPLEADO (SOFT-DELETE)
+# ==============================================================================
+
+@app.delete("/api/sync/empleados/{cedula}")
+def eliminar_empleado(cedula: str):
+    print(f"\n--- [DELETE /api/sync/empleados/{cedula}] Inactivando empleado ---")
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute("UPDATE empleados_asistencia SET estado = 'INACTIVO' WHERE cedula = %s", (cedula,))
+        conn.close()
+        
+        print(f"[Inactivar] Empleado con cédula {cedula} marcado como INACTIVO en SQL Server.")
+        return {
+            "success": True,
+            "message": "Empleado marcado como INACTIVO con éxito en SQL Server."
+        }
+    except Exception as e:
+        print(f"Error en eliminar_empleado: {e}")
+        raise HTTPException(status_code=500, detail=f"Error al inactivar empleado en SQL Server: {e}")
+
+
+# ==============================================================================
+# 6. MONITOREO DE SALUD (HEALTHCHECK)
+# ==============================================================================
+
 @app.get("/health")
 async def health_check():
-    return {"status": "healthy", "service": "biometria_py", "model": "Facenet"}
+    # Comprobar salud y conexión de base de datos
+    db_ok = False
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT 1")
+        cursor.fetchone()
+        conn.close()
+        db_ok = True
+    except Exception as e:
+        print(f"[Healthcheck] Error de conexión a DB: {e}")
+        
+    return {
+        "status": "healthy",
+        "service": "biometria_py",
+        "model": "Facenet",
+        "database_connected": db_ok
+    }

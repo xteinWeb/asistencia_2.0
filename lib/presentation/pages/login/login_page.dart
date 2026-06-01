@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../../core/routes/app_router.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../data/datasources/local/database_helper.dart';
@@ -45,8 +46,18 @@ class _LoginPageState extends State<LoginPage> {
         return;
       }
 
+      // Guardar información del rol del usuario en SharedPreferences
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('user_role', user.rol);
+      await prefs.setString('user_name', user.usuario);
+
       if (mounted) {
-        context.go(AppRoutes.home);
+        // Si es administrador tiene acceso a todo (Home), si es operador/usuario va directo al Kiosko
+        if (user.rol == 'ADMIN') {
+          context.go(AppRoutes.home);
+        } else {
+          context.go(AppRoutes.asistencia);
+        }
       }
     } catch (e) {
       setState(() => _error = 'Error al iniciar sesión: $e');

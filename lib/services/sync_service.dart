@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 import '../data/datasources/local/database_helper.dart';
@@ -45,6 +46,9 @@ class SyncService {
   /// 1. Push: Sube registros, permisos locales y enrolamientos a SQL Server.
   /// 2. Pull: Descarga horarios, usuarios, empleados y permisos desde SQL Server.
   Future<SyncResult> syncAll() async {
+    if (kIsWeb) {
+      return SyncResult(registros: 0, permisos: 0, errors: []);
+    }
     if (_isSyncing) return SyncResult(registros: 0, permisos: 0, errors: []);
     _isSyncing = true;
 
