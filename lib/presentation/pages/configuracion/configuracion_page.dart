@@ -31,6 +31,7 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
   bool _saving = false;
   bool _testingConnection = false;
   bool _syncing = false;
+  bool _permitirManual = false;
   
   int _pendientesRegistros = 0;
   int _pendientesPermisos = 0;
@@ -98,11 +99,16 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
       final freq = await _db.getConfig(DbConstants.cfgFrecuenciaSync) ?? '15';
       final unidad = await _db.getConfig(DbConstants.cfgUnidadNegocio) ?? 'Principal';
       final umbral = await _db.getConfig(DbConstants.cfgUmbralFacial) ?? '0.6';
+      final permitir = await _db.getConfig(DbConstants.cfgPermitirManual) ?? '0';
 
       _urlCtrl.text = url;
       _syncCtrl.text = freq;
       _unidadCtrl.text = unidad;
       _umbralCtrl.text = umbral;
+      
+      setState(() {
+        _permitirManual = permitir == '1';
+      });
 
       // 2. Cargar recuentos pendientes de sincronización
       final registros = await _db.getRegistrosPendientes();
@@ -130,6 +136,7 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
       await _db.setConfig(DbConstants.cfgFrecuenciaSync, _syncCtrl.text.trim());
       await _db.setConfig(DbConstants.cfgUnidadNegocio, _unidadCtrl.text.trim());
       await _db.setConfig(DbConstants.cfgUmbralFacial, _umbralCtrl.text.trim());
+      await _db.setConfig(DbConstants.cfgPermitirManual, _permitirManual ? '1' : '0');
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -315,6 +322,19 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
                                   return 'Ingrese un decimal válido entre 0.1 y 1.0';
                                 }
                                 return null;
+                              },
+                            ),
+                            const SizedBox(height: 20),
+                            SwitchListTile(
+                              contentPadding: EdgeInsets.zero,
+                              title: const Text('Permitir Marcado Manual de Contingencia'),
+                              subtitle: const Text('Permite marcar digitando la cédula en pantalla si falla el reconocimiento facial o el Wi-Fi.'),
+                              value: _permitirManual,
+                              activeThumbColor: AppColors.primary,
+                              onChanged: (val) {
+                                setState(() {
+                                  _permitirManual = val;
+                                });
                               },
                             ),
                           ],

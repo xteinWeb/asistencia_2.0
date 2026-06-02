@@ -13,6 +13,7 @@ import '../../../services/face_recognition_service.dart';
 import '../../../services/sync_service.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../core/utils/horario_validator.dart';
+import '../../../core/constants/db_constants.dart';
 import '../../../data/datasources/local/database_helper.dart';
 import '../../../domain/usecases/marcar_asistencia_usecase.dart';
 import '../../../core/routes/app_router.dart';
@@ -62,6 +63,7 @@ class _AsistenciaPageState extends State<AsistenciaPage> {
   double? _distanciaMatch;
   List<RegistroModel> _registrosHoy = [];
   bool _mostrarPanelSeleccion = false;
+  bool _permitirManual = false;
 
   // Detector de caras de Google ML Kit para Prueba de Vida (Liveness)
   late final FaceDetector _faceDetector;
@@ -77,7 +79,7 @@ class _AsistenciaPageState extends State<AsistenciaPage> {
   @override
   void initState() {
     super.initState();
-    _loadUserRole();
+    _loadConfig();
     _clockStream = Stream.periodic(
       const Duration(seconds: 1),
       (_) => DateTime.now(),
@@ -92,11 +94,17 @@ class _AsistenciaPageState extends State<AsistenciaPage> {
     _initializeCamera();
   }
 
-  Future<void> _loadUserRole() async {
+  Future<void> _loadConfig() async {
     try {
       final prefs = await SharedPreferences.getInstance();
       setState(() {
         _userRole = prefs.getString('user_role') ?? 'OPERADOR';
+      });
+      
+      final db = DatabaseHelper();
+      final permitir = await db.getConfig(DbConstants.cfgPermitirManual) ?? '0';
+      setState(() {
+        _permitirManual = permitir == '1';
       });
     } catch (_) {}
   }
@@ -1130,25 +1138,27 @@ class _AsistenciaPageState extends State<AsistenciaPage> {
                                   ),
                                 ),
                               ),
-                              const SizedBox(height: 10),
-                              OutlinedButton.icon(
-                                onPressed: _mostrarDialogoMarcacionOffline,
-                                icon: const Icon(Icons.keyboard_alt_outlined, color: Colors.white70),
-                                label: const Text('MARCAR CON CÉDULA (OFFLINE)'),
-                                style: OutlinedButton.styleFrom(
-                                  foregroundColor: Colors.white70,
-                                  side: const BorderSide(color: Colors.white24, width: 2),
-                                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(30),
-                                  ),
-                                  textStyle: const TextStyle(
-                                    fontSize: 13,
-                                    fontWeight: FontWeight.bold,
-                                    letterSpacing: 0.5,
+                              if (_permitirManual) ...[
+                                const SizedBox(height: 10),
+                                OutlinedButton.icon(
+                                  onPressed: _mostrarDialogoMarcacionOffline,
+                                  icon: const Icon(Icons.keyboard_alt_outlined, color: Colors.white70),
+                                  label: const Text('MARCAR CON CÉDULA (OFFLINE)'),
+                                  style: OutlinedButton.styleFrom(
+                                    foregroundColor: Colors.white70,
+                                    side: const BorderSide(color: Colors.white24, width: 2),
+                                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(30),
+                                    ),
+                                    textStyle: const TextStyle(
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.bold,
+                                      letterSpacing: 0.5,
+                                    ),
                                   ),
                                 ),
-                              ),
+                              ],
                             ],
                           ),
                         ),

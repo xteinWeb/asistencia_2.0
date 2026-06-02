@@ -55,4 +55,5 @@ class DbConstants {
   static const String cfgFrecuenciaSync = 'frecuencia_sync';
   static const String cfgUnidadNegocio = 'unidad_negocio';
   static const String cfgUmbralFacial = 'umbral_facial';
+  static const String cfgPermitirManual = 'permitir_manual';
 }

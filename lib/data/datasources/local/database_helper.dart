@@ -25,7 +25,9 @@ class DatabaseHelper {
 
   Future<Database> get database async {
     if (kIsWeb) {
-      throw UnsupportedError('SQLite is not supported on Web. Use online API direct methods instead.');
+      throw UnsupportedError(
+        'SQLite is not supported on Web. Use online API direct methods instead.',
+      );
     }
     _db ??= await _initDatabase();
     return _db!;
@@ -33,7 +35,8 @@ class DatabaseHelper {
 
   Future<Database> _initDatabase() async {
     // On Desktop (Windows/Linux/macOS) use sqflite_common_ffi
-    if (!kIsWeb && (Platform.isWindows || Platform.isLinux || Platform.isMacOS)) {
+    if (!kIsWeb &&
+        (Platform.isWindows || Platform.isLinux || Platform.isMacOS)) {
       sqfliteFfiInit();
       databaseFactory = databaseFactoryFfi;
     }
@@ -70,9 +73,13 @@ class DatabaseHelper {
 
       await db.execute('UPDATE registros SET id = LOWER(id)');
       await db.execute('UPDATE permisos SET id = LOWER(id)');
-      debugPrint('[SQLite] Normalización de base de datos y eliminación de duplicados completada con éxito.');
+      debugPrint(
+        '[SQLite] Normalización de base de datos y eliminación de duplicados completada con éxito.',
+      );
     } catch (e) {
-      debugPrint('Error al normalizar e integrar UUIDs de registros/permisos: $e');
+      debugPrint(
+        'Error al normalizar e integrar UUIDs de registros/permisos: $e',
+      );
     }
 
     return db;
@@ -214,12 +221,14 @@ class DatabaseHelper {
           FOREIGN KEY (horario_id) REFERENCES ${DbConstants.tableHorarios}(id_horario)
         )
       ''');
-      
+
       await db.execute('PRAGMA foreign_keys = ON');
     }
     if (oldVersion < 4) {
       try {
-        await db.execute("ALTER TABLE ${DbConstants.tableEmpleados} ADD COLUMN estado TEXT NOT NULL DEFAULT 'ACTIVO'");
+        await db.execute(
+          "ALTER TABLE ${DbConstants.tableEmpleados} ADD COLUMN estado TEXT NOT NULL DEFAULT 'ACTIVO'",
+        );
       } catch (e) {
         debugPrint('Error al agregar columna estado en SQLite: $e');
       }
@@ -232,33 +241,34 @@ class DatabaseHelper {
       {'clave': DbConstants.cfgFrecuenciaSync, 'valor': '15'},
       {'clave': DbConstants.cfgUnidadNegocio, 'valor': 'Principal'},
       {'clave': DbConstants.cfgUmbralFacial, 'valor': '0.6'},
+      {'clave': DbConstants.cfgPermitirManual, 'valor': '0'},
     ];
     for (final entry in defaults) {
-      await db.insert(DbConstants.tableConfiguracion, entry,
-          conflictAlgorithm: ConflictAlgorithm.ignore);
+      await db.insert(
+        DbConstants.tableConfiguracion,
+        entry,
+        conflictAlgorithm: ConflictAlgorithm.ignore,
+      );
     }
   }
 
   Future<void> _seedDefaultAdmin(Database db) async {
-    await db.insert(
-      DbConstants.tableUsuarios,
-      {
-        'usuario': 'admin',
-        'nombre': 'Administrador',
-        'contrasena': 'admin123',
-        'rol': 'ADMIN',
-        'estado': 'ACTIVO',
-        'unidad_negocio': 'Principal',
-      },
-      conflictAlgorithm: ConflictAlgorithm.ignore,
-    );
+    await db.insert(DbConstants.tableUsuarios, {
+      'usuario': 'admin',
+      'nombre': 'Administrador',
+      'contrasena': 'admin123',
+      'rol': 'ADMIN',
+      'estado': 'ACTIVO',
+      'unidad_negocio': 'Principal',
+    }, conflictAlgorithm: ConflictAlgorithm.ignore);
   }
 
   // ─── EMPLEADOS ────────────────────────────────────────────────────────────
 
   Future<int> insertEmpleado(EmpleadoModel empleado) async {
     if (kIsWeb) {
-      final baseUrl = await getConfig(DbConstants.cfgUrlApi) ?? ApiConstants.defaultBaseUrl;
+      final baseUrl =
+          await getConfig(DbConstants.cfgUrlApi) ?? ApiConstants.defaultBaseUrl;
       final response = await http.post(
         Uri.parse('$baseUrl/api/sync/empleados'),
         headers: {'Content-Type': 'application/json'},
@@ -268,8 +278,11 @@ class DatabaseHelper {
     }
 
     final db = await database;
-    return db.insert(DbConstants.tableEmpleados, empleado.toMap(),
-        conflictAlgorithm: ConflictAlgorithm.replace);
+    return db.insert(
+      DbConstants.tableEmpleados,
+      empleado.toMap(),
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
   }
 
   Future<EmpleadoModel?> getEmpleadoByCedula(String cedula) async {
@@ -291,7 +304,8 @@ class DatabaseHelper {
 
   Future<List<EmpleadoModel>> getAllEmpleados() async {
     if (kIsWeb) {
-      final baseUrl = await getConfig(DbConstants.cfgUrlApi) ?? ApiConstants.defaultBaseUrl;
+      final baseUrl =
+          await getConfig(DbConstants.cfgUrlApi) ?? ApiConstants.defaultBaseUrl;
       final response = await http.get(Uri.parse('$baseUrl/api/sync/empleados'));
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
@@ -326,8 +340,11 @@ class DatabaseHelper {
 
   Future<int> deleteEmpleado(String cedula) async {
     if (kIsWeb) {
-      final baseUrl = await getConfig(DbConstants.cfgUrlApi) ?? ApiConstants.defaultBaseUrl;
-      final response = await http.delete(Uri.parse('$baseUrl/api/sync/empleados/$cedula'));
+      final baseUrl =
+          await getConfig(DbConstants.cfgUrlApi) ?? ApiConstants.defaultBaseUrl;
+      final response = await http.delete(
+        Uri.parse('$baseUrl/api/sync/empleados/$cedula'),
+      );
       return response.statusCode == 200 ? 1 : 0;
     }
 
@@ -343,7 +360,8 @@ class DatabaseHelper {
 
   Future<int> insertHorario(HorarioModel horario) async {
     if (kIsWeb) {
-      final baseUrl = await getConfig(DbConstants.cfgUrlApi) ?? ApiConstants.defaultBaseUrl;
+      final baseUrl =
+          await getConfig(DbConstants.cfgUrlApi) ?? ApiConstants.defaultBaseUrl;
       final response = await http.post(
         Uri.parse('$baseUrl/api/sync/horarios'),
         headers: {'Content-Type': 'application/json'},
@@ -357,8 +375,11 @@ class DatabaseHelper {
     if (map['id_horario'] == null) {
       map['id_horario'] = const Uuid().v4();
     }
-    return db.insert(DbConstants.tableHorarios, map,
-        conflictAlgorithm: ConflictAlgorithm.replace);
+    return db.insert(
+      DbConstants.tableHorarios,
+      map,
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
   }
 
   Future<HorarioModel?> getHorarioById(String id) async {
@@ -380,11 +401,14 @@ class DatabaseHelper {
 
   Future<List<HorarioModel>> getAllHorarios() async {
     if (kIsWeb) {
-      final baseUrl = await getConfig(DbConstants.cfgUrlApi) ?? ApiConstants.defaultBaseUrl;
+      final baseUrl =
+          await getConfig(DbConstants.cfgUrlApi) ?? ApiConstants.defaultBaseUrl;
       final response = await http.get(Uri.parse('$baseUrl/api/sync/horarios'));
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
-        final list = (data['data'] as List).map((h) => HorarioModel.fromMap(Map<String, dynamic>.from(h))).toList();
+        final list = (data['data'] as List)
+            .map((h) => HorarioModel.fromMap(Map<String, dynamic>.from(h)))
+            .toList();
         return list;
       }
       return [];
@@ -403,8 +427,15 @@ class DatabaseHelper {
         await db.update(
           DbConstants.tableHorarios,
           {'id_horario': newId},
-          where: '(id_horario IS NULL OR id_horario = ?) AND tipo = ? AND hora_inicio = ? AND hora_final = ? AND dias = ?',
-          whereArgs: ['', row['tipo'], row['hora_inicio'], row['hora_final'], row['dias']],
+          where:
+              '(id_horario IS NULL OR id_horario = ?) AND tipo = ? AND hora_inicio = ? AND hora_final = ? AND dias = ?',
+          whereArgs: [
+            '',
+            row['tipo'],
+            row['hora_inicio'],
+            row['hora_final'],
+            row['dias'],
+          ],
         );
       }
     }
@@ -430,7 +461,8 @@ class DatabaseHelper {
 
   Future<int> insertRegistro(RegistroModel registro) async {
     if (kIsWeb) {
-      final baseUrl = await getConfig(DbConstants.cfgUrlApi) ?? ApiConstants.defaultBaseUrl;
+      final baseUrl =
+          await getConfig(DbConstants.cfgUrlApi) ?? ApiConstants.defaultBaseUrl;
       final response = await http.post(
         Uri.parse('$baseUrl/api/sync/registros'),
         headers: {'Content-Type': 'application/json'},
@@ -444,8 +476,11 @@ class DatabaseHelper {
     if (map['id'] == null) {
       map['id'] = const Uuid().v4();
     }
-    return db.insert(DbConstants.tableRegistros, map,
-        conflictAlgorithm: ConflictAlgorithm.replace);
+    return db.insert(
+      DbConstants.tableRegistros,
+      map,
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
   }
 
   Future<List<RegistroModel>> getRegistrosPorCedula(String cedula) async {
@@ -478,7 +513,8 @@ class DatabaseHelper {
 
   Future<List<RegistroModel>> getAllRegistros() async {
     if (kIsWeb) {
-      final baseUrl = await getConfig(DbConstants.cfgUrlApi) ?? ApiConstants.defaultBaseUrl;
+      final baseUrl =
+          await getConfig(DbConstants.cfgUrlApi) ?? ApiConstants.defaultBaseUrl;
       final response = await http.get(Uri.parse('$baseUrl/api/sync/registros'));
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
@@ -502,7 +538,8 @@ class DatabaseHelper {
 
   Future<List<RegistroModel>> getRegistrosHoy() async {
     if (kIsWeb) {
-      final baseUrl = await getConfig(DbConstants.cfgUrlApi) ?? ApiConstants.defaultBaseUrl;
+      final baseUrl =
+          await getConfig(DbConstants.cfgUrlApi) ?? ApiConstants.defaultBaseUrl;
       final response = await http.get(Uri.parse('$baseUrl/api/sync/registros'));
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
@@ -554,12 +591,20 @@ class DatabaseHelper {
 
   Future<UsuarioModel?> getUsuario(String usuario, String contrasena) async {
     if (kIsWeb) {
-      final baseUrl = await getConfig(DbConstants.cfgUrlApi) ?? ApiConstants.defaultBaseUrl;
+      final baseUrl =
+          await getConfig(DbConstants.cfgUrlApi) ?? ApiConstants.defaultBaseUrl;
       final response = await http.get(Uri.parse('$baseUrl/api/sync/usuarios'));
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
-        final list = (data['data'] as List).map((u) => UsuarioModel.fromMap(Map<String, dynamic>.from(u))).toList();
-        final results = list.where((u) => u.usuario == usuario && u.contrasena == contrasena && u.estado == 'ACTIVO');
+        final list = (data['data'] as List)
+            .map((u) => UsuarioModel.fromMap(Map<String, dynamic>.from(u)))
+            .toList();
+        final results = list.where(
+          (u) =>
+              u.usuario == usuario &&
+              u.contrasena == contrasena &&
+              u.estado == 'ACTIVO',
+        );
         return results.isEmpty ? null : results.first;
       }
       return null;
@@ -579,17 +624,23 @@ class DatabaseHelper {
     if (kIsWeb) return 1;
 
     final db = await database;
-    return db.insert(DbConstants.tableUsuarios, usuario.toMap(),
-        conflictAlgorithm: ConflictAlgorithm.replace);
+    return db.insert(
+      DbConstants.tableUsuarios,
+      usuario.toMap(),
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
   }
 
   Future<List<UsuarioModel>> getAllUsuarios() async {
     if (kIsWeb) {
-      final baseUrl = await getConfig(DbConstants.cfgUrlApi) ?? ApiConstants.defaultBaseUrl;
+      final baseUrl =
+          await getConfig(DbConstants.cfgUrlApi) ?? ApiConstants.defaultBaseUrl;
       final response = await http.get(Uri.parse('$baseUrl/api/sync/usuarios'));
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
-        final list = (data['data'] as List).map((u) => UsuarioModel.fromMap(Map<String, dynamic>.from(u))).toList();
+        final list = (data['data'] as List)
+            .map((u) => UsuarioModel.fromMap(Map<String, dynamic>.from(u)))
+            .toList();
         return list;
       }
       return [];
@@ -604,7 +655,8 @@ class DatabaseHelper {
 
   Future<int> insertPermiso(PermisoModel permiso) async {
     if (kIsWeb) {
-      final baseUrl = await getConfig(DbConstants.cfgUrlApi) ?? ApiConstants.defaultBaseUrl;
+      final baseUrl =
+          await getConfig(DbConstants.cfgUrlApi) ?? ApiConstants.defaultBaseUrl;
       final response = await http.post(
         Uri.parse('$baseUrl/api/sync/permisos'),
         headers: {'Content-Type': 'application/json'},
@@ -618,19 +670,30 @@ class DatabaseHelper {
     if (map['id'] == null) {
       map['id'] = const Uuid().v4();
     }
-    return db.insert(DbConstants.tablePermisos, map,
-        conflictAlgorithm: ConflictAlgorithm.replace);
+    return db.insert(
+      DbConstants.tablePermisos,
+      map,
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
   }
 
   Future<PermisoModel?> getPermisoActivoByCedula(String cedula) async {
     if (kIsWeb) {
-      final baseUrl = await getConfig(DbConstants.cfgUrlApi) ?? ApiConstants.defaultBaseUrl;
+      final baseUrl =
+          await getConfig(DbConstants.cfgUrlApi) ?? ApiConstants.defaultBaseUrl;
       final response = await http.get(Uri.parse('$baseUrl/api/sync/permisos'));
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
-        final list = (data['data'] as List).map((p) => PermisoModel.fromMap(Map<String, dynamic>.from(p))).toList();
+        final list = (data['data'] as List)
+            .map((p) => PermisoModel.fromMap(Map<String, dynamic>.from(p)))
+            .toList();
         final hoy = DateTime.now().toIso8601String().substring(0, 10);
-        final results = list.where((p) => p.cedulaEmpleado == cedula && p.fechaInicio.compareTo(hoy) <= 0 && p.fechaFinal.compareTo(hoy) >= 0);
+        final results = list.where(
+          (p) =>
+              p.cedulaEmpleado == cedula &&
+              p.fechaInicio.compareTo(hoy) <= 0 &&
+              p.fechaFinal.compareTo(hoy) >= 0,
+        );
         return results.isEmpty ? null : results.first;
       }
       return null;
@@ -640,8 +703,7 @@ class DatabaseHelper {
     final hoy = DateTime.now().toIso8601String().substring(0, 10);
     final rows = await db.query(
       DbConstants.tablePermisos,
-      where:
-          'cedula_empleado = ? AND fecha_inicio <= ? AND fecha_final >= ?',
+      where: 'cedula_empleado = ? AND fecha_inicio <= ? AND fecha_final >= ?',
       whereArgs: [cedula, hoy, hoy],
       orderBy: 'fecha_hora DESC',
       limit: 1,
@@ -663,7 +725,8 @@ class DatabaseHelper {
 
   Future<List<PermisoModel>> getAllPermisos() async {
     if (kIsWeb) {
-      final baseUrl = await getConfig(DbConstants.cfgUrlApi) ?? ApiConstants.defaultBaseUrl;
+      final baseUrl =
+          await getConfig(DbConstants.cfgUrlApi) ?? ApiConstants.defaultBaseUrl;
       final response = await http.get(Uri.parse('$baseUrl/api/sync/permisos'));
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
@@ -701,10 +764,12 @@ class DatabaseHelper {
 
   Future<String?> getConfig(String clave) async {
     if (kIsWeb) {
-      final prefs = await SharedPreferences.getInstance();
       if (clave == DbConstants.cfgUrlApi) {
-        return prefs.getString(clave) ?? ApiConstants.defaultBaseUrl;
+        // En la Web, la URL de la API es dinámica y depende enteramente del host y puerto
+        // desde el cual se cargó el sitio web. Forzamos null para usar siempre ApiConstants.defaultBaseUrl.
+        return null;
       }
+      final prefs = await SharedPreferences.getInstance();
       return prefs.getString(clave);
     }
 
@@ -717,8 +782,9 @@ class DatabaseHelper {
     if (rows.isEmpty) return null;
     final valor = rows.first['valor'] as String?;
 
-    if (clave == DbConstants.cfgUrlApi && 
-        (valor == 'http://192.168.1.100:5900' || valor == 'http://192.168.11.51:5900')) {
+    if (clave == DbConstants.cfgUrlApi &&
+        (valor == 'http://192.168.1.100:8085' ||
+            valor == 'http://192.168.11.51:8085')) {
       final newUrl = ApiConstants.defaultBaseUrl;
       await setConfig(DbConstants.cfgUrlApi, newUrl);
       return newUrl;
@@ -735,11 +801,10 @@ class DatabaseHelper {
     }
 
     final db = await database;
-    await db.insert(
-      DbConstants.tableConfiguracion,
-      {'clave': clave, 'valor': valor},
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
+    await db.insert(DbConstants.tableConfiguracion, {
+      'clave': clave,
+      'valor': valor,
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
   Future<List<ConfiguracionModel>> getAllConfig() async {
@@ -755,16 +820,30 @@ class DatabaseHelper {
       }
       // Asegurar default configs si no existen
       if (!keys.contains(DbConstants.cfgUrlApi)) {
-        list.add(ConfiguracionModel(clave: DbConstants.cfgUrlApi, valor: ApiConstants.defaultBaseUrl));
+        list.add(
+          ConfiguracionModel(
+            clave: DbConstants.cfgUrlApi,
+            valor: ApiConstants.defaultBaseUrl,
+          ),
+        );
       }
       if (!keys.contains(DbConstants.cfgFrecuenciaSync)) {
-        list.add(ConfiguracionModel(clave: DbConstants.cfgFrecuenciaSync, valor: '15'));
+        list.add(
+          ConfiguracionModel(clave: DbConstants.cfgFrecuenciaSync, valor: '15'),
+        );
       }
       if (!keys.contains(DbConstants.cfgUnidadNegocio)) {
-        list.add(ConfiguracionModel(clave: DbConstants.cfgUnidadNegocio, valor: 'Principal'));
+        list.add(
+          ConfiguracionModel(
+            clave: DbConstants.cfgUnidadNegocio,
+            valor: 'Principal',
+          ),
+        );
       }
       if (!keys.contains(DbConstants.cfgUmbralFacial)) {
-        list.add(ConfiguracionModel(clave: DbConstants.cfgUmbralFacial, valor: '0.6'));
+        list.add(
+          ConfiguracionModel(clave: DbConstants.cfgUmbralFacial, valor: '0.6'),
+        );
       }
       return list;
     }

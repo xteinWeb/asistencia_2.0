@@ -1,7 +1,7 @@
 import os
 import shutil
 from typing import List, Optional
-from fastapi import FastAPI, File, UploadFile, HTTPException, Depends
+from fastapi import FastAPI, File, UploadFile, HTTPException, Depends, Form
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from deepface import DeepFace
@@ -137,8 +137,16 @@ def startup_event():
 
 @app.post("/api/asistencia/nuevoEmpleado")
 @app.post("/api/asistencia/compararRostro")
-async def generar_vector(face: UploadFile = File(...)):
-    print(f"\n--- [Generar Vector Python] Petición recibida para archivo: {face.filename} ---")
+async def generar_vector(
+    face: UploadFile = File(...),
+    cedula: Optional[str] = Form(None)
+):
+    print(f"\n--- [Generar Vector Python] Petición recibida para archivo: {face.filename}, Cédula: {cedula} ---")
+    
+    # Asegurar directorios
+    os.makedirs(TEMP_DIR, exist_ok=True)
+    PERM_DIR = "fotos_empleados"
+    os.makedirs(PERM_DIR, exist_ok=True)
     
     # Guardar temporalmente la imagen subida
     temp_file_path = os.path.join(TEMP_DIR, face.filename)
@@ -172,6 +180,14 @@ async def generar_vector(face: UploadFile = File(...)):
                 reverse=True
             )
             selected_representation = representations[0]
+            
+        # Si se proporciona la cédula del empleado, guardamos la foto de forma permanente
+        if cedula and cedula.strip() != "":
+            # Limpiar la cédula para que sea un nombre de archivo seguro
+            clean_cedula = "".join(c for c in cedula if c.isalnum() or c in ('-', '_')).strip()
+            perm_file_path = os.path.join(PERM_DIR, f"{clean_cedula}.jpg")
+            shutil.copy(temp_file_path, perm_file_path)
+            print(f"[Biometría] Foto permanente de empleado guardada con éxito en: {perm_file_path}")
             
         # Obtener el vector de 128 flotantes y aplicar Normalización L2
         raw_embedding = selected_representation["embedding"]

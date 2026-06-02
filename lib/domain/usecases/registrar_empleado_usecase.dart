@@ -40,7 +40,7 @@ class RegistrarEmpleadoUseCase {
     }
 
     // Generar vector en el backend Node.js
-    final vector = await _faceService.generarVectorDesdeImagen(imagePath);
+    final vector = await _faceService.generarVectorDesdeImagen(imagePath, cedula: cedula);
     if (vector.isEmpty) {
       throw Exception('No se pudo generar el vector facial.');
     }

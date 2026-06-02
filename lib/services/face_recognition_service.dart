@@ -21,7 +21,7 @@ class FaceRecognitionService {
   /// Requiere conexión a internet.
   /// [imagePath] es la ruta local del archivo de imagen.
   /// Retorna el vector o lanza excepción si falla.
-  Future<List<double>> generarVectorDesdeImagen(String imagePath) async {
+  Future<List<double>> generarVectorDesdeImagen(String imagePath, {String? cedula}) async {
     final baseUrl = await _db.getConfig(DbConstants.cfgUrlApi) ??
         ApiConstants.defaultBaseUrl;
 
@@ -40,6 +40,10 @@ class FaceRecognitionService {
         contentType: MediaType('image', 'jpeg'),
       ),
     );
+
+    if (cedula != null && cedula.isNotEmpty) {
+      request.fields['cedula'] = cedula;
+    }
 
     final streamedResponse = await request
         .send()
