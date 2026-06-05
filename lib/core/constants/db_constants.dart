@@ -1,6 +1,6 @@
 class DbConstants {
   static const String dbName = 'asistencia_empleados.db';
-  static const int dbVersion = 4;
+  static const int dbVersion = 10;
 
 
   // Table names

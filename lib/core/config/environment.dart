@@ -9,7 +9,7 @@ class Environment {
   static const AppEnvironment active = AppEnvironment.dev;
 
   /// URL del servidor de desarrollo (Local).
-  static const String devBaseUrl = 'http://192.168.11.46:8085';
+  static const String devBaseUrl = 'http://192.168.11.6:8085';
 
   /// URL del servidor de producción.
   static const String prodBaseUrl = 'https://tu-api-produccion.com';
@@ -26,8 +26,14 @@ class Environment {
         return 'http://${uri.host}:8085';
       }
 
-      // En producción con IP pública directa (Mapeo de puertos en el Fortinet),
-      // apuntamos al host de procedencia en el puerto 8085 expuesto públicamente.
+      // Si el host es un nombre de dominio (no una dirección IP numérica),
+      // enviamos las peticiones al mismo dominio/puerto (Nginx actuará como proxy inverso en /api).
+      if (!RegExp(r'^[0-9.]+$').hasMatch(uri.host)) {
+        return '${uri.scheme}://${uri.host}';
+      }
+
+      // En producción con IP de red local o pública directa,
+      // apuntamos al host de procedencia en el puerto 8085.
       return '${uri.scheme}://${uri.host}:8085';
     }
     switch (active) {

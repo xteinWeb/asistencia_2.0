@@ -86,8 +86,6 @@ class HorarioValidator {
       );
     }
 
-    final tolerancia = const Duration(minutes: AppConstants.toleranciaRetardoMinutos);
-
     // 4. Tipo ALMUERZO
     if (horario.tipo == AppConstants.horarioAlmuerzo) {
       return ResultadoValidacion(
@@ -113,7 +111,7 @@ class HorarioValidator {
       }
 
       // Entrada normal o retardo
-      final esRetardo = ahora.isAfter(horaInicio.add(tolerancia));
+      final esRetardo = ahora.isAfter(horaInicio) && ahora.difference(horaInicio).inMinutes > 0;
       if (esRetardo) {
         final minutosTarde = ahora.difference(horaInicio).inMinutes;
         return ResultadoValidacion(

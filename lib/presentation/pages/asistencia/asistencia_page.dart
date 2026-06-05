@@ -1217,8 +1217,12 @@ class _AsistenciaPageState extends State<AsistenciaPage> {
                         // Estado de la secuencia actual (Ayuda visual)
                         Builder(
                           builder: (context) {
-                            final yaTieneEntrada = _registrosHoy.any((r) => r.tipo == TipoRegistro.normal.name.toUpperCase() || r.tipo == TipoRegistro.retardo.name.toUpperCase());
-                            final yaTieneSalida = _registrosHoy.any((r) => r.tipo == TipoRegistro.salida.name.toUpperCase());
+                            final yaTieneEntrada = _registrosHoy.any((r) => 
+                              r.evento == 'ENTRADA' && (r.tipo == 'NORMAL' || r.tipo == 'RETARDO' || r.tipo == 'PERMISO')
+                            );
+                            final yaTieneSalida = _registrosHoy.any((r) => 
+                              r.evento == 'SALIDA' && (r.tipo == 'SALIDA' || r.tipo == 'PERMISO')
+                            );
                             final yaTieneAlmuerzo = _registrosHoy.any((r) => r.tipo == TipoRegistro.almuerzo.name.toUpperCase());
 
                             String statusText = 'Secuencia: Esperando Entrada';
@@ -1239,8 +1243,12 @@ class _AsistenciaPageState extends State<AsistenciaPage> {
                         // Fila de 5 botones de selección manual
                         Builder(
                           builder: (context) {
-                            final yaTieneEntrada = _registrosHoy.any((r) => r.tipo == TipoRegistro.normal.name.toUpperCase() || r.tipo == TipoRegistro.retardo.name.toUpperCase());
-                            final yaTieneSalida = _registrosHoy.any((r) => r.tipo == TipoRegistro.salida.name.toUpperCase());
+                            final yaTieneEntrada = _registrosHoy.any((r) => 
+                              r.evento == 'ENTRADA' && (r.tipo == 'NORMAL' || r.tipo == 'RETARDO' || r.tipo == 'PERMISO')
+                            );
+                            final yaTieneSalida = _registrosHoy.any((r) => 
+                              r.evento == 'SALIDA' && (r.tipo == 'SALIDA' || r.tipo == 'PERMISO')
+                            );
                             
                             return Wrap(
                               spacing: 8,

@@ -46,7 +46,6 @@ class _HorariosPageState extends State<HorariosPage> {
             ),
           );
         }
-        // Recargar datos locales
         _loadHorarios();
       }
     } catch (e) {
@@ -84,57 +83,12 @@ class _HorariosPageState extends State<HorariosPage> {
     }
   }
 
-  Future<void> _deleteHorario(String id, String tipo) async {
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Confirmar Eliminación'),
-        content: Text('¿Está seguro de que desea eliminar este horario de tipo $tipo?\nAsegúrese de que ningún empleado esté usando este horario.'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancelar'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(context, true),
-            style: ElevatedButton.styleFrom(backgroundColor: AppColors.error),
-            child: const Text('Eliminar'),
-          ),
-        ],
-      ),
-    );
-
-    if (confirm == true) {
-      try {
-        await _db.deleteHorario(id);
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Horario eliminado con éxito'), backgroundColor: AppColors.success),
-        );
-        _loadHorarios();
-      } catch (e) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error al eliminar horario: $e'), backgroundColor: AppColors.error),
-        );
-      }
-    }
-  }
-
-  void _showAddHorarioDialog() {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => const _AddHorarioDialog(),
-    ).then((value) {
-      if (value == true) {
-        _loadHorarios();
-      }
-    });
-  }
-
   Color _getTipoColor(String tipo) {
     switch (tipo.toUpperCase()) {
+      case 'PRODUCTIVA':
       case 'LABORAL':
         return AppColors.primary;
+      case 'RECESO':
       case 'ALMUERZO':
         return AppColors.colorAlmuerzo;
       case 'DESCANSO':
@@ -148,7 +102,7 @@ class _HorariosPageState extends State<HorariosPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Gestión de Horarios'),
+        title: const Text('Horarios de Trabajo Centrales'),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
           onPressed: () => context.go(AppRoutes.home),
@@ -162,7 +116,7 @@ class _HorariosPageState extends State<HorariosPage> {
                     child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
                   )
                 : const Icon(Icons.sync),
-            tooltip: 'Sincronizar todo',
+            tooltip: 'Sincronizar horarios',
             onPressed: _syncing ? null : _syncManually,
           ),
         ],
@@ -178,13 +132,13 @@ class _HorariosPageState extends State<HorariosPage> {
                       const SizedBox(height: 16),
                       const Text(
                         'No hay horarios registrados en el sistema',
-                        style: TextStyle(color: Colors.grey),
+                        style: TextStyle(color: Colors.grey, fontSize: 16, fontWeight: FontWeight.w500),
                       ),
-                      const SizedBox(height: 16),
-                      ElevatedButton.icon(
-                        onPressed: _showAddHorarioDialog,
-                        icon: const Icon(Icons.add),
-                        label: const Text('Crear Primer Horario'),
+                      const SizedBox(height: 8),
+                      const Text(
+                        'Presione el botón de sincronizar arriba para descargar desde SQL Server.',
+                        style: TextStyle(color: Colors.grey, fontSize: 13),
+                        textAlign: TextAlign.center,
                       ),
                     ],
                   ),
@@ -194,292 +148,184 @@ class _HorariosPageState extends State<HorariosPage> {
                   itemCount: _horarios.length,
                   itemBuilder: (context, index) {
                     final h = _horarios[index];
-                    final color = _getTipoColor(h.tipo);
 
                     return Card(
-                      margin: const EdgeInsets.only(bottom: 12),
+                      margin: const EdgeInsets.only(bottom: 16),
+                      elevation: 3,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
                       child: Padding(
                         padding: const EdgeInsets.all(16),
-                        child: Row(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            // Icono del tipo de horario
-                            Container(
-                              padding: const EdgeInsets.all(12),
-                              decoration: BoxDecoration(
-                                color: color.withValues(alpha: 0.1),
-                                shape: BoxShape.circle,
-                              ),
-                              child: Icon(
-                                h.tipo.toUpperCase() == 'LABORAL'
-                                    ? Icons.work_outline
-                                    : h.tipo.toUpperCase() == 'ALMUERZO'
-                                        ? Icons.restaurant_menu
-                                        : Icons.coffee,
-                                color: color,
-                                size: 26,
-                              ),
-                            ),
-                            const SizedBox(width: 16),
-
-                            // Detalles del horario
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Row(
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Expanded(
+                                  child: Row(
                                     children: [
-                                      Text(
-                                        h.tipo.toUpperCase(),
-                                        style: TextStyle(
-                                          fontWeight: FontWeight.bold,
-                                          fontSize: 16,
-                                          color: color,
+                                      Container(
+                                        padding: const EdgeInsets.all(8),
+                                        decoration: BoxDecoration(
+                                          color: AppColors.primary.withOpacity(0.1),
+                                          shape: BoxShape.circle,
+                                        ),
+                                        child: const Icon(
+                                          Icons.schedule_outlined,
+                                          color: AppColors.primary,
+                                          size: 22,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 12),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              h.descripcion.toUpperCase(),
+                                              style: const TextStyle(
+                                                fontWeight: FontWeight.bold,
+                                                fontSize: 16,
+                                              ),
+                                            ),
+                                            const SizedBox(height: 2),
+                                            Text(
+                                              'Código: ${h.idHorario}',
+                                              style: TextStyle(
+                                                color: Theme.of(context).colorScheme.onSurfaceVariant.withOpacity(0.7),
+                                                fontSize: 12,
+                                                fontWeight: FontWeight.w500,
+                                              ),
+                                            ),
+                                          ],
                                         ),
                                       ),
                                     ],
                                   ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    'Horas: ${h.horaInicio} - ${h.horaFinal}',
+                                ),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                  decoration: BoxDecoration(
+                                    color: h.estado.toUpperCase() == 'ACTIVO'
+                                        ? AppColors.successLight
+                                        : AppColors.errorLight,
+                                    borderRadius: BorderRadius.circular(20),
+                                  ),
+                                  child: Text(
+                                    h.estado.toUpperCase(),
                                     style: TextStyle(
-                                      fontWeight: FontWeight.w600,
-                                      fontSize: 14,
-                                      color: Theme.of(context).colorScheme.onSurface,
+                                      color: h.estado.toUpperCase() == 'ACTIVO'
+                                          ? AppColors.success
+                                          : AppColors.error,
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 11,
                                     ),
                                   ),
-                                  const SizedBox(height: 6),
-                                  Wrap(
-                                    spacing: 4,
-                                    runSpacing: 4,
-                                    children: h.diasList.map((d) {
-                                      return Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                        decoration: BoxDecoration(
-                                          color: AppColors.border.withValues(alpha: 0.5),
-                                          borderRadius: BorderRadius.circular(4),
-                                        ),
-                                        child: Text(
-                                          d,
-                                          style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Theme.of(context).colorScheme.onSurface),
-                                        ),
-                                      );
-                                    }).toList(),
-                                  ),
-                                ],
+                                ),
+                              ],
+                            ),
+                            
+                            const Divider(height: 24),
+
+                            const Text(
+                              'SEGMENTOS DEL TURNO:',
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.grey,
+                                letterSpacing: 0.5,
                               ),
                             ),
+                            const SizedBox(height: 8),
 
-                            // Botón de eliminar
-                            IconButton(
-                              icon: const Icon(Icons.delete_outline, color: AppColors.error),
-                              tooltip: 'Eliminar Horario',
-                              onPressed: () => _deleteHorario(h.idHorario!, h.tipo),
-                            ),
+                            if (h.items.isEmpty)
+                              const Padding(
+                                padding: EdgeInsets.symmetric(vertical: 8.0),
+                                child: Text(
+                                  'Sin segmentos definidos en este horario.',
+                                  style: TextStyle(color: Colors.grey, fontSize: 13, fontStyle: FontStyle.italic),
+                                ),
+                              )
+                            else
+                              Column(
+                                children: h.items.map((item) {
+                                  final itemColor = _getTipoColor(item.tipo);
+                                  
+                                  final List<String> days = [];
+                                  if (item.lunes) days.add('Lu');
+                                  if (item.martes) days.add('Ma');
+                                  if (item.miercoles) days.add('Mi');
+                                  if (item.jueves) days.add('Ju');
+                                  if (item.viernes) days.add('Vi');
+                                  if (item.sabado) days.add('Sa');
+                                  if (item.domingo) days.add('Do');
+
+                                  final String formattedInicio = item.inicio.length >= 5 ? item.inicio.substring(0, 5) : item.inicio;
+                                  final String formattedFinal = item.finalTime.length >= 5 ? item.finalTime.substring(0, 5) : item.finalTime;
+
+                                  return Container(
+                                    margin: const EdgeInsets.only(bottom: 8),
+                                    padding: const EdgeInsets.all(10),
+                                    decoration: BoxDecoration(
+                                      color: Theme.of(context).colorScheme.surfaceContainerHighest.withOpacity(0.3),
+                                      borderRadius: BorderRadius.circular(8),
+                                      border: Border.all(color: Colors.grey.withOpacity(0.1)),
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        Icon(
+                                          item.tipo.toUpperCase() == 'PRODUCTIVA'
+                                              ? Icons.play_circle_outline_rounded
+                                              : Icons.pause_circle_outline_rounded,
+                                          color: itemColor,
+                                          size: 22,
+                                        ),
+                                        const SizedBox(width: 10),
+                                        Text(
+                                          '$formattedInicio - $formattedFinal',
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.bold,
+                                            fontSize: 14,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 10),
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                          decoration: BoxDecoration(
+                                            color: itemColor.withOpacity(0.12),
+                                            borderRadius: BorderRadius.circular(4),
+                                          ),
+                                          child: Text(
+                                            item.tipo.toUpperCase(),
+                                            style: TextStyle(
+                                              color: itemColor,
+                                              fontSize: 10,
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                          ),
+                                        ),
+                                        const Spacer(),
+                                        Text(
+                                          days.isEmpty ? 'Ninguno' : days.join(' '),
+                                          style: TextStyle(
+                                            color: Theme.of(context).colorScheme.onSurfaceVariant.withOpacity(0.8),
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  );
+                                }).toList(),
+                              ),
                           ],
                         ),
                       ),
                     );
                   },
                 ),
-      floatingActionButton: _horarios.isNotEmpty
-          ? FloatingActionButton(
-              onPressed: _showAddHorarioDialog,
-              tooltip: 'Crear nuevo horario',
-              child: const Icon(Icons.add),
-            )
-          : null,
-    );
-  }
-}
-
-class _AddHorarioDialog extends StatefulWidget {
-  const _AddHorarioDialog();
-
-  @override
-  State<_AddHorarioDialog> createState() => _AddHorarioDialogState();
-}
-
-class _AddHorarioDialogState extends State<_AddHorarioDialog> {
-  final _formKey = GlobalKey<FormState>();
-  final _db = DatabaseHelper();
-
-  String _tipo = 'LABORAL';
-  TimeOfDay _horaInicio = const TimeOfDay(hour: 8, minute: 0);
-  TimeOfDay _horaFinal = const TimeOfDay(hour: 17, minute: 0);
-  
-  final List<String> _diasDisponibles = ['L', 'M', 'Mi', 'J', 'V', 'S', 'D'];
-  final Set<String> _diasSeleccionados = {'L', 'M', 'Mi', 'J', 'V'};
-  bool _saving = false;
-
-  Color _getTipoColor(String tipo) {
-    switch (tipo.toUpperCase()) {
-      case 'LABORAL':
-        return AppColors.primary;
-      case 'ALMUERZO':
-        return AppColors.colorAlmuerzo;
-      case 'DESCANSO':
-        return AppColors.colorSalida;
-      default:
-        return AppColors.textSecondary;
-    }
-  }
-
-  Future<void> _selectTime(bool esInicio) async {
-    final picked = await showTimePicker(
-      context: context,
-      initialTime: esInicio ? _horaInicio : _horaFinal,
-    );
-    if (picked != null) {
-      setState(() {
-        if (esInicio) {
-          _horaInicio = picked;
-        } else {
-          _horaFinal = picked;
-        }
-      });
-    }
-  }
-
-  String _formatTimeOfDay(TimeOfDay time) {
-    final hour = time.hour.toString().padLeft(2, '0');
-    final minute = time.minute.toString().padLeft(2, '0');
-    return '$hour:$minute';
-  }
-
-  Future<void> _save() async {
-    if (!_formKey.currentState!.validate()) return;
-    if (_diasSeleccionados.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Seleccione al menos un día de la semana'), backgroundColor: AppColors.warning),
-      );
-      return;
-    }
-
-    setState(() => _saving = true);
-    try {
-      // Unir los días seleccionados manteniendo el orden
-      final diasListOrdered = _diasDisponibles.where((d) => _diasSeleccionados.contains(d)).join(',');
-
-      final horario = HorarioModel(
-        tipo: _tipo,
-        horaInicio: _formatTimeOfDay(_horaInicio),
-        horaFinal: _formatTimeOfDay(_horaFinal),
-        dias: diasListOrdered,
-      );
-
-      await _db.insertHorario(horario);
-      if (mounted) {
-        Navigator.pop(context, true);
-      }
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error al guardar horario: $e'), backgroundColor: AppColors.error),
-      );
-    } finally {
-      if (mounted) setState(() => _saving = false);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      title: const Text('Nuevo Horario'),
-      content: SingleChildScrollView(
-        child: Form(
-          key: _formKey,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Tipo de Horario
-              DropdownButtonFormField<String>(
-                initialValue: _tipo,
-                decoration: const InputDecoration(labelText: 'Tipo de Horario'),
-                items: const [
-                  DropdownMenuItem(value: 'LABORAL', child: Text('Laboral')),
-                  DropdownMenuItem(value: 'ALMUERZO', child: Text('Almuerzo')),
-                  DropdownMenuItem(value: 'DESCANSO', child: Text('Descanso')),
-                ],
-                onChanged: (val) {
-                  if (val != null) setState(() => _tipo = val);
-                },
-              ),
-              const SizedBox(height: 16),
-
-              // Hora Inicio y Hora Fin
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: () => _selectTime(true),
-                      icon: const Icon(Icons.access_time, size: 18),
-                      label: Text('Inicio: ${_formatTimeOfDay(_horaInicio)}'),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: () => _selectTime(false),
-                      icon: const Icon(Icons.access_time, size: 18),
-                      label: Text('Fin: ${_formatTimeOfDay(_horaFinal)}'),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 20),
-
-              // Días de la semana
-              Text(
-                'Días Laborales',
-                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Theme.of(context).colorScheme.onSurfaceVariant),
-              ),
-              const SizedBox(height: 8),
-              Wrap(
-                spacing: 6,
-                runSpacing: 6,
-                children: _diasDisponibles.map((dia) {
-                  final isSelected = _diasSeleccionados.contains(dia);
-                  return FilterChip(
-                    label: Text(dia),
-                    selected: isSelected,
-                    selectedColor: _getTipoColor(_tipo).withValues(alpha: 0.2),
-                    checkmarkColor: _getTipoColor(_tipo),
-                    labelStyle: TextStyle(
-                      color: isSelected ? _getTipoColor(_tipo) : Theme.of(context).colorScheme.onSurface,
-                      fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                    ),
-                    onSelected: (selected) {
-                      setState(() {
-                        if (selected) {
-                          _diasSeleccionados.add(dia);
-                        } else {
-                          _diasSeleccionados.remove(dia);
-                        }
-                      });
-                    },
-                  );
-                }).toList(),
-              ),
-            ],
-          ),
-        ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: _saving ? null : () => Navigator.pop(context),
-          child: const Text('Cancelar'),
-        ),
-        ElevatedButton(
-          onPressed: _saving ? null : _save,
-          child: _saving
-              ? const SizedBox(
-                  height: 16,
-                  width: 16,
-                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                )
-              : const Text('Crear Horario'),
-        ),
-      ],
     );
   }
 }

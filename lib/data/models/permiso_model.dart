@@ -9,6 +9,7 @@ class PermisoModel extends Permiso {
     required super.tipo,
     required super.fechaInicio,
     required super.fechaFinal,
+    super.observacion,
     super.sincronizado = false,
   });
 
@@ -20,6 +21,7 @@ class PermisoModel extends Permiso {
         tipo: map['tipo'] as String,
         fechaInicio: map['fecha_inicio'] as String,
         fechaFinal: map['fecha_final'] as String,
+        observacion: map['observacion'] as String?,
         sincronizado: (map['sincronizado'] as int? ?? 0) == 1,
       );
 
@@ -31,6 +33,7 @@ class PermisoModel extends Permiso {
         'tipo': tipo,
         'fecha_inicio': fechaInicio,
         'fecha_final': fechaFinal,
+        'observacion': observacion,
         'sincronizado': sincronizado ? 1 : 0,
       };
 
@@ -47,6 +50,7 @@ class PermisoModel extends Permiso {
     String? tipo,
     String? fechaInicio,
     String? fechaFinal,
+    String? observacion,
     bool? sincronizado,
   }) =>
       PermisoModel(
@@ -57,6 +61,7 @@ class PermisoModel extends Permiso {
         tipo: tipo ?? this.tipo,
         fechaInicio: fechaInicio ?? this.fechaInicio,
         fechaFinal: fechaFinal ?? this.fechaFinal,
+        observacion: observacion ?? this.observacion,
         sincronizado: sincronizado ?? this.sincronizado,
       );
 }

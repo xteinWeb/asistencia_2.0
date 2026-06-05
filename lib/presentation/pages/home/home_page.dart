@@ -94,6 +94,13 @@ class _HomePageState extends State<HomePage> {
         route: AppRoutes.permisos,
       ),
       _MenuItem(
+        icon: Icons.event_busy,
+        label: 'Ausentismo',
+        subtitle: 'Control y justificaciones',
+        color: AppColors.warning,
+        route: AppRoutes.ausentismo,
+      ),
+      _MenuItem(
         icon: Icons.settings_outlined,
         label: 'Configuración',
         subtitle: 'Ajustes del sistema',

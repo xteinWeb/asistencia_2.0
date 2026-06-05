@@ -28,14 +28,14 @@ class _EmpleadosListPageState extends State<EmpleadosListPage> {
   List<EmpleadoModel> _allEmpleados = [];
   List<EmpleadoModel> _filteredEmpleados = [];
   Map<String, HorarioModel> _horariosMap = {};
+  Map<String, String> _seccionesMap = {};
   
   String _selectedFacial = 'TODOS';
   String _selectedSync = 'TODOS';
   bool _loading = true;
   bool _syncing = false;
   
-  // Rastrear qué grupos de empleados están expandidos (cerrados por defecto)
-  final Map<String, bool> _expandedGroups = {};
+  
   
   // Rastrear operaciones de sincronización individual por Cédula
   final Map<String, bool> _syncingEmployees = {};
@@ -62,7 +62,13 @@ class _EmpleadosListPageState extends State<EmpleadosListPage> {
         for (var h in horariosList) h.idHorario!: h
       };
 
-      // 2. Cargar todos los empleados activos
+      // 2. Cargar secciones en un mapa para traducción rápida
+      final seccionesList = await _db.getSecciones();
+      _seccionesMap = {
+        for (var s in seccionesList) s['id_seccion'] as String: s['descripcion'] as String
+      };
+
+      // 3. Cargar todos los empleados activos
       final list = await _db.getAllEmpleados();
       final activeList = list.where((e) => e.estado == 'ACTIVO').toList();
       
@@ -438,41 +444,97 @@ class _EmpleadosListPageState extends State<EmpleadosListPage> {
     );
   }
 
-  Widget _buildDetailRow(String label, String value, {Color? valueColor, IconData? icon}) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
+  Widget _buildTableHeader() {
+    return Container(
+      decoration: BoxDecoration(
+        color: AppColors.primary.withValues(alpha: 0.08),
+        borderRadius: const BorderRadius.only(
+          topLeft: Radius.circular(7),
+          topRight: Radius.circular(7),
+        ),
+        border: Border(
+          bottom: BorderSide(color: Colors.grey.shade300, width: 1),
+        ),
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      child: const Row(
         children: [
-          SizedBox(
-            width: 160,
+          Expanded(
+            flex: 2,
             child: Text(
-              label,
-              style: const TextStyle(
+              'Cédula',
+              style: TextStyle(
                 fontWeight: FontWeight.bold,
-                color: Colors.grey,
                 fontSize: 13,
+                color: AppColors.primaryDark,
               ),
             ),
           ),
           Expanded(
-            child: Row(
-              children: [
-                if (icon != null) ...[
-                  Icon(icon, size: 16, color: valueColor ?? Colors.grey),
-                  const SizedBox(width: 6),
-                ],
-                Expanded(
-                  child: Text(
-                    value,
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: valueColor != null ? FontWeight.bold : FontWeight.normal,
-                      color: valueColor,
-                    ),
-                  ),
-                ),
-              ],
+            flex: 3,
+            child: Text(
+              'Colaborador',
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 13,
+                color: AppColors.primaryDark,
+              ),
+            ),
+          ),
+          Expanded(
+            flex: 2,
+            child: Text(
+              'Tipo',
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 13,
+                color: AppColors.primaryDark,
+              ),
+            ),
+          ),
+          Expanded(
+            flex: 2,
+            child: Text(
+              'Firma Facial',
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 13,
+                color: AppColors.primaryDark,
+              ),
+            ),
+          ),
+          Expanded(
+            flex: 3,
+            child: Text(
+              'Horario / Sección',
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 13,
+                color: AppColors.primaryDark,
+              ),
+            ),
+          ),
+          Expanded(
+            flex: 2,
+            child: Text(
+              'Sincronización',
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 13,
+                color: AppColors.primaryDark,
+              ),
+            ),
+          ),
+          Expanded(
+            flex: 2,
+            child: Text(
+              'Acciones',
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 13,
+                color: AppColors.primaryDark,
+              ),
+              textAlign: TextAlign.center,
             ),
           ),
         ],
@@ -480,282 +542,215 @@ class _EmpleadosListPageState extends State<EmpleadosListPage> {
     );
   }
 
-  Widget _buildEmployeeCard(EmpleadoModel emp, bool isWide) {
-    final isExpanded = _expandedGroups[emp.cedula] ?? false;
+  Widget _buildTableRow(EmpleadoModel emp, int index) {
     final tieneRostro = emp.mapaVectorFoto.isNotEmpty;
-    final colorEstado = tieneRostro ? AppColors.success : AppColors.warning;
+    final colorRostro = tieneRostro ? AppColors.success : AppColors.warning;
+    final bgRostro = tieneRostro ? AppColors.successLight : AppColors.warningLight;
+    final textRostro = tieneRostro ? 'ENROLADO' : 'SIN ROSTRO';
+    final iconRostro = tieneRostro ? Icons.face_rounded : Icons.face_retouching_off_rounded;
+
     final horario = emp.horarioId != null ? _horariosMap[emp.horarioId] : null;
+    final horarioText = horario != null
+        ? '${horario.tipo} (${horario.horaInicio} - ${horario.horaFinal})'
+        : 'Sin Horario';
+    
+    final seccionText = (emp.tipo == 'OPERATIVO' || emp.tipo == null) && emp.idSeccion != null
+        ? _seccionesMap[emp.idSeccion] ?? emp.idSeccion!
+        : null;
 
-    final verticalPadding = isWide ? 16.0 : 12.0;
-    final horizontalPadding = isWide ? 24.0 : 16.0;
+    final colorSync = emp.sincronizado ? AppColors.success : AppColors.warning;
+    final bgSync = emp.sincronizado ? AppColors.successLight : AppColors.warningLight;
+    final textSync = emp.sincronizado ? 'NUBE AL DÍA' : 'PENDIENTE';
+    final iconSync = emp.sincronizado ? Icons.cloud_done_rounded : Icons.cloud_off_rounded;
 
-    return Card(
-      margin: const EdgeInsets.only(bottom: 12),
-      elevation: 2,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: BorderSide(
-          color: Theme.of(context).dividerColor.withValues(alpha: 0.4),
+    final rowColor = index.isEven ? Colors.white : Colors.grey.shade50;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: rowColor,
+        border: Border(
+          bottom: BorderSide(color: Colors.grey.shade200, width: 1),
         ),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      child: Row(
         children: [
-          // Cabecera Clickeable del Empleado (Grupo, cerrado por defecto)
-          InkWell(
-            onTap: () {
-              setState(() {
-                _expandedGroups[emp.cedula] = !isExpanded;
-              });
-            },
-            borderRadius: isExpanded
-                ? const BorderRadius.vertical(top: Radius.circular(12))
-                : BorderRadius.circular(12),
-            child: Container(
-              padding: EdgeInsets.symmetric(horizontal: horizontalPadding, vertical: verticalPadding),
-              decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.25),
-                borderRadius: isExpanded
-                    ? const BorderRadius.vertical(top: Radius.circular(12))
-                    : BorderRadius.circular(12),
-              ),
-              child: Row(
-                children: [
-                  CircleAvatar(
-                    radius: 22,
-                    backgroundColor: colorEstado.withValues(alpha: 0.1),
-                    child: Icon(
-                      tieneRostro ? Icons.face_rounded : Icons.face_retouching_off_rounded,
-                      color: colorEstado,
-                      size: 24,
-                    ),
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          emp.nombre,
-                          style: const TextStyle(
-                            fontSize: 15,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          'Cédula: ${emp.cedula}',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: Theme.of(context).colorScheme.onSurfaceVariant,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  
-                  // Badge del Estado Facial (Oculto en móvil extremadamente estrecho)
-                  if (MediaQuery.of(context).size.width > 420) ...[
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: tieneRostro ? AppColors.successLight : AppColors.warningLight,
-                        borderRadius: BorderRadius.circular(20),
-                        border: Border.all(
-                          color: colorEstado.withValues(alpha: 0.3),
-                        ),
-                      ),
-                      child: Text(
-                        tieneRostro ? 'ENROLADO' : 'SIN ROSTRO',
-                        style: TextStyle(
-                          fontSize: 9,
-                          fontWeight: FontWeight.bold,
-                          color: colorEstado,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                  ],
+          // Cédula
+          Expanded(
+            flex: 2,
+            child: Text(
+              emp.cedula,
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+            ),
+          ),
 
-                  // Badge del Estado Sincronización en Nube
-                  if (isWide) ...[
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: emp.sincronizado ? AppColors.successLight : AppColors.warningLight,
-                        borderRadius: BorderRadius.circular(20),
-                        border: Border.all(
-                          color: emp.sincronizado
-                              ? AppColors.success.withValues(alpha: 0.3)
-                              : AppColors.warning.withValues(alpha: 0.3),
-                        ),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            emp.sincronizado ? Icons.cloud_done_rounded : Icons.cloud_off_rounded,
-                            color: emp.sincronizado ? AppColors.success : AppColors.warning,
-                            size: 12,
-                          ),
-                          const SizedBox(width: 4),
-                          Text(
-                            emp.sincronizado ? 'NUBE AL DÍA' : 'PENDIENTE SYNC',
-                            style: TextStyle(
-                              fontSize: 9,
-                              fontWeight: FontWeight.bold,
-                              color: emp.sincronizado ? AppColors.success : AppColors.warning,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                  ],
+          // Colaborador
+          Expanded(
+            flex: 3,
+            child: Text(
+              emp.nombre,
+              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
 
-                  Icon(
-                    isExpanded
-                        ? Icons.keyboard_arrow_up_rounded
-                        : Icons.keyboard_arrow_down_rounded,
-                    color: AppColors.primary,
-                    size: 22,
+          // Tipo
+          Expanded(
+            flex: 2,
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade200,
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: Text(
+                  emp.tipo ?? 'ADMINISTRATIVO',
+                  style: TextStyle(
+                    fontSize: 9,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.grey.shade800,
                   ),
-                ],
+                ),
               ),
             ),
           ),
 
-          // Cuerpo de la tarjeta desplegable (Detalles y Acciones)
-          if (isExpanded)
-            Padding(
-              padding: const EdgeInsets.all(20),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  // Cuadrícula de Datos Clave
-                  if (isWide)
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Expanded(
-                          child: Column(
-                            children: [
-                              _buildDetailRow('Cédula de Identidad', emp.cedula),
-                              _buildDetailRow(
-                                'Firma Facial Biométrica',
-                                tieneRostro ? 'Rostro Enrolado con Éxito' : 'Rostro Pendiente de Enrolar',
-                                valueColor: colorEstado,
-                                icon: tieneRostro ? Icons.verified_user_rounded : Icons.warning_rounded,
-                              ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(width: 32),
-                        Expanded(
-                          child: Column(
-                            children: [
-                              _buildDetailRow(
-                                'Horario Asignado',
-                                horario != null
-                                    ? '${horario.tipo} (${horario.horaInicio} - ${horario.horaFinal})'
-                                    : 'Sin Horario Asignado',
-                              ),
-                              _buildDetailRow(
-                                'Respaldo en la Nube',
-                                emp.sincronizado ? 'Sincronizado con Servidor Central' : 'Pendiente de Subir',
-                                valueColor: emp.sincronizado ? AppColors.success : AppColors.warning,
-                                icon: emp.sincronizado ? Icons.cloud_done_rounded : Icons.cloud_off_rounded,
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    )
-                  else
-                    Column(
-                      children: [
-                        _buildDetailRow('Cédula de Identidad', emp.cedula),
-                        _buildDetailRow(
-                          'Firma Facial',
-                          tieneRostro ? 'Rostro Registrado' : 'Pendiente de Enrolar',
-                          valueColor: colorEstado,
-                          icon: tieneRostro ? Icons.verified_user_rounded : Icons.warning_rounded,
-                        ),
-                        _buildDetailRow(
-                          'Horario Asignado',
-                          horario != null
-                              ? '${horario.tipo} (${horario.horaInicio} - ${horario.horaFinal})'
-                              : 'Sin Horario',
-                        ),
-                        _buildDetailRow(
-                          'Sincronización',
-                          emp.sincronizado ? 'Sincronizado' : 'Pendiente de Subir',
-                          valueColor: emp.sincronizado ? AppColors.success : AppColors.warning,
-                          icon: emp.sincronizado ? Icons.cloud_done_rounded : Icons.cloud_off_rounded,
-                        ),
-                      ],
+          // Firma Facial
+          Expanded(
+            flex: 2,
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: bgRostro,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: colorRostro.withValues(alpha: 0.3)),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(iconRostro, color: colorRostro, size: 12),
+                    const SizedBox(width: 4),
+                    Text(
+                      textRostro,
+                      style: TextStyle(
+                        color: colorRostro,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 9,
+                      ),
                     ),
-                  
-                  const Divider(height: 30),
-
-                  // Barra de Botones de Acciones
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.end,
-                    children: [
-                      // Inactivar / Eliminar
-                      OutlinedButton.icon(
-                        onPressed: () => _deleteEmpleado(emp.cedula, emp.nombre),
-                        icon: const Icon(Icons.delete_outline_rounded, size: 18),
-                        label: const Text('Inactivar Empleado'),
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: AppColors.error,
-                          side: const BorderSide(color: AppColors.error),
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-
-                      // Sincronizar individual (Solo si tiene rostro y no está sincronizado)
-                      if (tieneRostro && !emp.sincronizado) ...[
-                        _syncingEmployees[emp.cedula] == true
-                            ? const SizedBox(
-                                width: 24,
-                                height: 24,
-                                child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.primary),
-                              )
-                            : OutlinedButton.icon(
-                                onPressed: () => _syncSingleEmpleado(emp),
-                                icon: const Icon(Icons.cloud_upload_rounded, size: 18),
-                                label: const Text('Sincronizar Nube'),
-                                style: OutlinedButton.styleFrom(
-                                  foregroundColor: AppColors.primary,
-                                  side: const BorderSide(color: AppColors.primary),
-                                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                                ),
-                              ),
-                        const SizedBox(width: 12),
-                      ],
-
-                      // Ver Detalle / Editar
-                      ElevatedButton.icon(
-                        onPressed: () => context.go('${AppRoutes.empleados}/${emp.cedula}'),
-                        icon: const Icon(Icons.arrow_forward_rounded, size: 18),
-                        label: const Text('Ver Detalles'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: AppColors.primary,
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
+          ),
+
+          // Horario / Sección
+          Expanded(
+            flex: 3,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  horarioText,
+                  style: const TextStyle(fontSize: 12),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                if (seccionText != null) ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    'Sección: $seccionText',
+                    style: const TextStyle(fontSize: 10, color: Colors.grey),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ],
+            ),
+          ),
+
+          // Sincronización
+          Expanded(
+            flex: 2,
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: bgSync,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: colorSync.withValues(alpha: 0.3)),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(iconSync, color: colorSync, size: 12),
+                    const SizedBox(width: 4),
+                    Text(
+                      textSync,
+                      style: TextStyle(
+                        color: colorSync,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 9,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+
+          // Acciones
+          Expanded(
+            flex: 2,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                // Ver Detalles / Editar
+                IconButton(
+                  icon: const Icon(Icons.visibility_outlined, color: AppColors.primary, size: 18),
+                  tooltip: 'Ver Detalles',
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                  onPressed: () => context.go('${AppRoutes.empleados}/${emp.cedula}'),
+                ),
+                const SizedBox(width: 8),
+
+                // Sincronizar individual (Solo si tiene rostro y no está sincronizado)
+                if (tieneRostro && !emp.sincronizado) ...[
+                  _syncingEmployees[emp.cedula] == true
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.primary),
+                        )
+                      : IconButton(
+                          icon: const Icon(Icons.cloud_upload_rounded, color: AppColors.success, size: 18),
+                          tooltip: 'Sincronizar Nube',
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(),
+                          onPressed: () => _syncSingleEmpleado(emp),
+                        ),
+                  const SizedBox(width: 8),
+                ],
+
+                // Inactivar
+                IconButton(
+                  icon: const Icon(Icons.delete_outline_rounded, color: AppColors.error, size: 18),
+                  tooltip: 'Inactivar Empleado',
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                  onPressed: () => _deleteEmpleado(emp.cedula, emp.nombre),
+                ),
+              ],
+            ),
+          ),
         ],
       ),
     );
@@ -951,16 +946,38 @@ class _EmpleadosListPageState extends State<EmpleadosListPage> {
                   ),
                   const SizedBox(height: 20),
 
-                  // 3. Listado de Empleados Colapsables (Desktop & Mobile)
+                  // 3. Listado de Empleados (Estilo CSS Table)
                   Expanded(
                     child: _filteredEmpleados.isEmpty
                         ? _buildEmptyState()
-                        : ListView.builder(
-                            itemCount: _filteredEmpleados.length,
-                            itemBuilder: (context, index) {
-                              final emp = _filteredEmpleados[index];
-                              return _buildEmployeeCard(emp, isWide);
-                            },
+                        : Container(
+                            margin: const EdgeInsets.symmetric(vertical: 4),
+                            decoration: BoxDecoration(
+                              color: Theme.of(context).cardColor,
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(color: Colors.grey.shade300, width: 1),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black.withValues(alpha: 0.03),
+                                  blurRadius: 6,
+                                  offset: const Offset(0, 2),
+                                ),
+                              ],
+                            ),
+                            child: Column(
+                              children: [
+                                _buildTableHeader(),
+                                Expanded(
+                                  child: ListView.builder(
+                                    itemCount: _filteredEmpleados.length,
+                                    itemBuilder: (context, index) {
+                                      final emp = _filteredEmpleados[index];
+                                      return _buildTableRow(emp, index);
+                                    },
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
                   ),
                 ],

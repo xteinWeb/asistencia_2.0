@@ -4,6 +4,7 @@ import '../../core/utils/horario_validator.dart';
 import '../../data/datasources/local/database_helper.dart';
 import '../../data/models/registro_model.dart';
 import '../../data/models/empleado_model.dart';
+import '../../data/models/permiso_model.dart';
 
 /// Marca asistencia de forma OFFLINE:
 /// 1. Recibe el vector facial detectado por ML Kit en el dispositivo.
@@ -54,39 +55,214 @@ class MarcarAsistenciaUseCase {
 
     String evento = AppConstants.eventoEntrada;
     String descripcion = '';
+    String tipoFinal = tipoSeleccionado.name.toUpperCase();
+    String? duracionFinal;
 
-    // ─── VALIDACIÓN ESPECIAL: 🟣 PERMISO ─────────────────────────────
-    if (tipoSeleccionado == TipoRegistro.permiso) {
+    final yaTieneEntrada = registrosHoy.any((r) => r.tipo == TipoRegistro.normal.name.toUpperCase() || 
+                                                   r.tipo == TipoRegistro.retardo.name.toUpperCase() ||
+                                                   r.tipo == TipoRegistro.permiso.name.toUpperCase());
+    final yaTieneSalida = registrosHoy.any((r) => r.evento == AppConstants.eventoSalida);
+    final yaTieneAlmuerzo = registrosHoy.any((r) => r.tipo == TipoRegistro.almuerzo.name.toUpperCase());
+
+    // 1. Obtener todos los permisos del empleado para el día de hoy
+    final hoyStr = ahora.toIso8601String().substring(0, 10);
+    final permisos = await _db.getPermisosByCedula(empleado.cedula);
+    PermisoModel? permisoHoy;
+    for (final p in permisos) {
+      if (p.fechaInicio.length >= 10 && p.fechaFinal.length >= 10) {
+        final startDay = p.fechaInicio.substring(0, 10);
+        final endDay = p.fechaFinal.substring(0, 10);
+        if (hoyStr.compareTo(startDay) >= 0 && hoyStr.compareTo(endDay) <= 0) {
+          permisoHoy = p;
+          break;
+        }
+      }
+    }
+
+    // ─── CASO 1: SALIDA ──────────────────────────────────────────────
+    if (tipoSeleccionado == TipoRegistro.salida) {
+      if (!yaTieneEntrada) {
+        return MarcarAsistenciaResult.error('Registro Inválido: No puedes registrar Salida sin antes haber marcado tu Entrada hoy.');
+      }
+      if (yaTieneSalida) {
+        return MarcarAsistenciaResult.error('Registro Inválido: Ya has marcado tu Salida final por el día de hoy.');
+      }
+
+      // Validar salida anticipada frente al horario del turno
+      if (empleado.horarioId != null) {
+        final horario = await _db.getHorarioById(empleado.horarioId!);
+        if (horario != null && horario.horaFinal.isNotEmpty) {
+          final parts = horario.horaFinal.split(':');
+          if (parts.length >= 2) {
+            final hour = int.tryParse(parts[0]);
+            final minute = int.tryParse(parts[1]);
+            if (hour != null && minute != null) {
+              final finTurno = DateTime(ahora.year, ahora.month, ahora.day, hour, minute);
+              if (ahora.isBefore(finTurno)) {
+                // Se requiere un permiso activo en este momento para poder salir temprano
+                final permisoActivo = await _db.getPermisoActivoByCedula(empleado.cedula);
+                if (permisoActivo == null) {
+                  return MarcarAsistenciaResult.error(
+                    'No se puede marcar salida antes de la hora de finalización del turno (${horario.horaFinal}) a menos que exista un permiso activo.',
+                  );
+                }
+              }
+            }
+          }
+        }
+      }
+
+      evento = AppConstants.eventoSalida;
+      descripcion = 'Salida de jornada registrada correctamente. ¡Hasta mañana!';
+    }
+    // ─── CASO 2: SALIDA POR PERMISO (Botón Permiso con Entrada ya registrada) ───
+    else if (tipoSeleccionado == TipoRegistro.permiso && yaTieneEntrada) {
       final permiso = await _db.getPermisoActivoByCedula(empleado.cedula);
       if (permiso == null) {
         return MarcarAsistenciaResult.error('No hay permiso autorizado registrado hoy para este usuario.');
       }
-      
-      // Si tiene permiso, determinamos evento según registros de hoy
-      final yaTieneEntrada = registrosHoy.any((r) => r.evento == AppConstants.eventoEntrada);
-      evento = yaTieneEntrada ? AppConstants.eventoSalida : AppConstants.eventoEntrada;
-      descripcion = 'Marcación por Permiso Autorizado registrada con éxito.';
-    } 
-    // ─── VALIDACIONES DE SECUENCIA DIARIA COMÚN ─────────────────────
-    else {
-      final yaTieneEntrada = registrosHoy.any((r) => r.tipo == TipoRegistro.normal.name.toUpperCase() || 
-                                                     r.tipo == TipoRegistro.retardo.name.toUpperCase());
-      final yaTieneSalida = registrosHoy.any((r) => r.tipo == TipoRegistro.salida.name.toUpperCase());
-      final yaTieneAlmuerzo = registrosHoy.any((r) => r.tipo == TipoRegistro.almuerzo.name.toUpperCase());
+      if (yaTieneSalida) {
+        return MarcarAsistenciaResult.error('Registro Inválido: Ya has marcado tu Salida final por el día de hoy.');
+      }
+      evento = AppConstants.eventoSalida;
+      tipoFinal = 'PERMISO';
+      descripcion = 'Marcación por Permiso Autorizado (Salida) registrada con éxito.';
+    }
+    // ─── CASO 3: ENTRADAS (Normal, Retardo, o Permiso de Entrada) ──────
+    else if (tipoSeleccionado == TipoRegistro.normal || 
+             tipoSeleccionado == TipoRegistro.retardo || 
+             (tipoSeleccionado == TipoRegistro.permiso && !yaTieneEntrada)) {
+      if (yaTieneEntrada) {
+        return MarcarAsistenciaResult.error('Registro Inválido: Ya has registrado tu Entrada el día de hoy.');
+      }
 
-      switch (tipoSeleccionado) {
-        case TipoRegistro.normal:
-        case TipoRegistro.retardo:
-          // Intentando marcar ENTRADA
-          if (yaTieneEntrada) {
-            return MarcarAsistenciaResult.error('Registro Inválido: Ya has registrado tu Entrada el día de hoy.');
+      evento = AppConstants.eventoEntrada;
+
+      if (permisoHoy != null) {
+        final inicioPermiso = DateTime.tryParse(permisoHoy.fechaInicio);
+        final finPermiso = DateTime.tryParse(permisoHoy.fechaFinal);
+
+        if (inicioPermiso != null && finPermiso != null) {
+          if (ahora.isBefore(inicioPermiso)) {
+            // Aún no inicia el periodo del permiso. Evaluar según horario normal:
+            tipoFinal = 'NORMAL';
+            descripcion = '¡Bienvenido! Entrada registrada correctamente (Permiso programado para más tarde).';
+            if (empleado.horarioId != null) {
+              final horario = await _db.getHorarioById(empleado.horarioId!);
+              if (horario != null && horario.horaInicio.isNotEmpty) {
+                final parts =
+                    horario.horaInicio.split(':');
+                if (parts.length >= 2) {
+                  final hour = int.tryParse(parts[0]);
+                  final minute = int.tryParse(parts[1]);
+                  if (hour != null && minute != null) {
+                    final inicioTurno = DateTime(
+                        ahora.year,
+                        ahora.month,
+                        ahora.day,
+                        hour,
+                        minute);
+                    if (ahora.isAfter(inicioTurno)) {
+                      final diff = ahora.difference(inicioTurno);
+                      if (diff.inMinutes > 0) {
+                        tipoFinal = 'RETARDO';
+                        duracionFinal = '${diff.inMinutes} minutos';
+                        descripcion =
+                            'Retardo de ${diff.inMinutes} minutos registrado (Permiso programado para más tarde).';
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          } else if (ahora.isAfter(finPermiso)) {
+            // Llegó después de la hora final del permiso -> Permiso con retardo
+            tipoFinal = 'PERMISO';
+            final diff = ahora.difference(finPermiso);
+            duracionFinal = '${diff.inMinutes} minutos';
+            descripcion =
+                'Entrada con permiso y retardo de ${diff.inMinutes} minutos registrada.';
+          } else {
+            // Llegó dentro del tiempo del permiso -> Entrada normal, permiso finalizado
+            tipoFinal = 'NORMAL';
+            descripcion =
+                '¡Bienvenido! Entrada registrada (Permiso finalizado).';
           }
-          evento = AppConstants.eventoEntrada;
+        } else {
+          // Fallback de parseo de permiso: evaluar según horario normal
+          tipoFinal = 'NORMAL';
           descripcion = '¡Bienvenido! Entrada registrada correctamente.';
-          break;
+          if (empleado.horarioId != null) {
+            final horario = await _db.getHorarioById(empleado.horarioId!);
+            if (horario != null && horario.horaInicio.isNotEmpty) {
+              final parts = horario.horaInicio.split(':');
+              if (parts.length >= 2) {
+                final hour = int.tryParse(parts[0]);
+                final minute = int.tryParse(parts[1]);
+                if (hour != null && minute != null) {
+                  final inicioTurno = DateTime(
+                      ahora.year,
+                      ahora.month,
+                      ahora.day,
+                      hour,
+                      minute);
+                  if (ahora.isAfter(inicioTurno)) {
+                    final diff = ahora.difference(inicioTurno);
+                    if (diff.inMinutes > 0) {
+                      tipoFinal = 'RETARDO';
+                      duracionFinal = '${diff.inMinutes} minutos';
+                      descripcion =
+                          'Retardo de ${diff.inMinutes} minutos registrado.';
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      } else {
+        // No tiene permiso hoy. Si presionó el botón 'PERMISO', error inmediato.
+        if (tipoSeleccionado == TipoRegistro.permiso) {
+          return MarcarAsistenciaResult.error(
+              'No hay permiso autorizado registrado hoy para este usuario.');
+        }
 
+        // Evaluar entrada normal o retardo según su horario
+        tipoFinal = 'NORMAL';
+        descripcion = '¡Bienvenido! Entrada registrada correctamente.';
+        if (empleado.horarioId != null) {
+          final horario = await _db.getHorarioById(empleado.horarioId!);
+          if (horario != null && horario.horaInicio.isNotEmpty) {
+            final parts = horario.horaInicio.split(':');
+            if (parts.length >= 2) {
+              final hour = int.tryParse(parts[0]);
+              final minute = int.tryParse(parts[1]);
+              if (hour != null && minute != null) {
+                final inicioTurno = DateTime(
+                    ahora.year,
+                    ahora.month,
+                    ahora.day,
+                    hour,
+                    minute);
+                if (ahora.isAfter(inicioTurno)) {
+                  final diff = ahora.difference(inicioTurno);
+                  if (diff.inMinutes > 0) {
+                    tipoFinal = 'RETARDO';
+                    duracionFinal = '${diff.inMinutes} minutos';
+                    descripcion =
+                        'Retardo de ${diff.inMinutes} minutos registrado.';
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    // ─── CASO 4: ALMUERZO O EXTRAS ────────────────────────────────────
+    else {
+      switch (tipoSeleccionado) {
         case TipoRegistro.almuerzo:
-          // Intentando marcar ALMUERZO
           if (!yaTieneEntrada) {
             return MarcarAsistenciaResult.error('Registro Inválido: No puedes registrar Almuerzo sin antes registrar Entrada hoy.');
           }
@@ -97,20 +273,7 @@ class MarcarAsistenciaUseCase {
           descripcion = yaTieneAlmuerzo ? 'Retorno de almuerzo registrado.' : 'Salida a almuerzo registrada.';
           break;
 
-        case TipoRegistro.salida:
-          // Intentando marcar SALIDA
-          if (!yaTieneEntrada) {
-            return MarcarAsistenciaResult.error('Registro Inválido: No puedes registrar Salida sin antes haber marcado tu Entrada hoy.');
-          }
-          if (yaTieneSalida) {
-            return MarcarAsistenciaResult.error('Registro Inválido: Ya has marcado tu Salida final por el día de hoy.');
-          }
-          evento = AppConstants.eventoSalida;
-          descripcion = 'Salida de jornada registrada correctamente. ¡Hasta mañana!';
-          break;
-
         case TipoRegistro.extras:
-          // Extras se permite en cualquier momento como jornada extraordinaria
           evento = yaTieneEntrada ? AppConstants.eventoSalida : AppConstants.eventoEntrada;
           descripcion = 'Marcación de Horas Extras registrada correctamente.';
           break;
@@ -128,7 +291,8 @@ class MarcarAsistenciaUseCase {
       fechaHora: ahora.toIso8601String().substring(0, 19),
       cedula: empleado.cedula,
       evento: evento,
-      tipo: tipoSeleccionado.name.toUpperCase(),
+      duracion: duracionFinal,
+      tipo: tipoFinal,
       unidadNegocio: unidad,
       sincronizado: false,
     );
@@ -136,12 +300,20 @@ class MarcarAsistenciaUseCase {
     // Guardar en SQLite local
     await _db.insertRegistro(registro);
 
+    // Mapeamos el tipo final al enum TipoRegistro para el resultado
+    TipoRegistro tipoResultado = tipoSeleccionado;
+    if (tipoFinal == 'PERMISO') {
+      tipoResultado = TipoRegistro.permiso;
+    } else if (tipoFinal == 'NORMAL') {
+      tipoResultado = TipoRegistro.normal;
+    }
+
     return MarcarAsistenciaResult(
       registrado: true,
       mensaje: descripcion,
       empleadoNombre: empleado.nombre,
       empleadoCedula: empleado.cedula,
-      tipoRegistro: tipoSeleccionado,
+      tipoRegistro: tipoResultado,
       distancia: distancia,
       registro: registro,
     );

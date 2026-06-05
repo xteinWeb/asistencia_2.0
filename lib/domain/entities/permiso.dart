@@ -4,8 +4,9 @@ class Permiso {
   final String cedulaEmpleado;
   final String fechaHora;      // registro timestamp ISO8601
   final String tipo;           // CITA_MEDICA / PERSONAL / LABORAL / TRASLADO / FIN_CONTRATO
-  final String fechaInicio;    // ISO8601 date
-  final String fechaFinal;     // ISO8601 date
+  final String fechaInicio;    // ISO8601 date-time
+  final String fechaFinal;     // ISO8601 date-time
+  final String? observacion;
   final bool sincronizado;
 
   const Permiso({
@@ -16,6 +17,7 @@ class Permiso {
     required this.tipo,
     required this.fechaInicio,
     required this.fechaFinal,
+    this.observacion,
     this.sincronizado = false,
   });
 
@@ -24,13 +26,10 @@ class Permiso {
     final inicio = DateTime.tryParse(fechaInicio);
     final fin = DateTime.tryParse(fechaFinal);
     if (inicio == null || fin == null) return false;
-    final momentoDate = DateTime(momento.year, momento.month, momento.day);
-    final inicioDate = DateTime(inicio.year, inicio.month, inicio.day);
-    final finDate = DateTime(fin.year, fin.month, fin.day);
-    return !momentoDate.isBefore(inicioDate) && !momentoDate.isAfter(finDate);
+    return !momento.isBefore(inicio) && !momento.isAfter(fin);
   }
 
   @override
   String toString() =>
-      'Permiso(cedula: $cedulaEmpleado, tipo: $tipo, $fechaInicio-$fechaFinal)';
+      'Permiso(cedula: $cedulaEmpleado, tipo: $tipo, $fechaInicio-$fechaFinal, obs: $observacion)';
 }

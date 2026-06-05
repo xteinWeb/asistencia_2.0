@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import 'package:camera/camera.dart';
@@ -49,10 +50,15 @@ class _RegistroEmpleadoPageState extends State<RegistroEmpleadoPage> {
 
   List<HorarioModel> _horarios = [];
   String? _selectedHorarioId;
-  
+
+  List<Map<String, dynamic>> _secciones = [];
+  String? _selectedSeccionId;
+
+  String? _selectedTipo = 'OPERATIVO'; // Default is OPERATIVO
+
   // Modos de enrolamiento: REAL (con API) o SIMULADO (local offline)
   bool _modoReal = true;
-  
+
   // Control de cámara en vivo y galería
   CameraController? _cameraController;
   List<CameraDescription> _cameras = [];
@@ -67,15 +73,37 @@ class _RegistroEmpleadoPageState extends State<RegistroEmpleadoPage> {
     statusText: 'Esperando captura de rostro',
     statusColor: Colors.grey,
   );
-  
+
   bool _saving = false;
 
   @override
   void initState() {
     super.initState();
     _loadHorarios();
+    _loadSecciones();
     // Valor de inicio de contrato por defecto: Hoy
     _fechaIniCtrl.text = DateFormat('yyyy-MM-dd').format(DateTime.now());
+  }
+
+  Future<void> _loadSecciones() async {
+    try {
+      final list = await _db.getSecciones();
+      setState(() {
+        _secciones = list;
+        if (list.isNotEmpty) {
+          _selectedSeccionId = list.first['id_seccion'] as String?;
+        }
+      });
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error al cargar secciones: $e'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
+    }
   }
 
   @override
@@ -84,6 +112,7 @@ class _RegistroEmpleadoPageState extends State<RegistroEmpleadoPage> {
     _nombreCtrl.dispose();
     _fechaIniCtrl.dispose();
     _fechaFinCtrl.dispose();
+
     _disposeCamera();
     super.dispose();
   }
@@ -113,7 +142,10 @@ class _RegistroEmpleadoPageState extends State<RegistroEmpleadoPage> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error al cargar horarios: $e'), backgroundColor: AppColors.error),
+          SnackBar(
+            content: Text('Error al cargar horarios: $e'),
+            backgroundColor: AppColors.error,
+          ),
         );
       }
     }
@@ -136,7 +168,7 @@ class _RegistroEmpleadoPageState extends State<RegistroEmpleadoPage> {
 
   Future<void> _initializeCamera() async {
     if (_initializingCamera || _isCameraInitialized) return;
-    
+
     setState(() {
       _initializingCamera = true;
       _capturedImage = null;
@@ -171,7 +203,7 @@ class _RegistroEmpleadoPageState extends State<RegistroEmpleadoPage> {
       );
 
       await _cameraController!.initialize();
-      
+
       if (mounted) {
         setState(() {
           _isCameraInitialized = true;
@@ -193,7 +225,8 @@ class _RegistroEmpleadoPageState extends State<RegistroEmpleadoPage> {
             enrolando: false,
             rostroRegistrado: false,
             vectorBiometrico: [],
-            statusText: 'Error al iniciar cámara: ${e.toString().replaceAll('Exception: ', '')}',
+            statusText:
+                'Error al iniciar cámara: ${e.toString().replaceAll('Exception: ', '')}',
             statusColor: AppColors.error,
           );
         });
@@ -215,14 +248,23 @@ class _RegistroEmpleadoPageState extends State<RegistroEmpleadoPage> {
     try {
       if (_modoReal) {
         final useCase = RegistrarEmpleadoUseCase();
-        
+
         final empTemp = await useCase.execute(
-          cedula: _cedulaCtrl.text.trim().isEmpty ? 'test_temp' : _cedulaCtrl.text.trim(),
-          nombre: _nombreCtrl.text.trim().isEmpty ? 'Empleado de Prueba' : _nombreCtrl.text.trim(),
+          cedula: _cedulaCtrl.text.trim().isEmpty
+              ? 'test_temp'
+              : _cedulaCtrl.text.trim(),
+          nombre: _nombreCtrl.text.trim().isEmpty
+              ? 'Empleado de Prueba'
+              : _nombreCtrl.text.trim(),
           imagePath: path,
           horarioId: _selectedHorarioId,
           fechaIniContrato: _fechaIniCtrl.text,
-          fechaFinContrato: _fechaFinCtrl.text.isNotEmpty ? _fechaFinCtrl.text : null,
+          fechaFinContrato: _fechaFinCtrl.text.isNotEmpty
+              ? _fechaFinCtrl.text
+              : null,
+          sedePrincipal: null,
+          idSeccion: _selectedTipo == 'OPERATIVO' ? _selectedSeccionId : null,
+          tipo: _selectedTipo,
         );
 
         if (mounted) {
@@ -245,12 +287,14 @@ class _RegistroEmpleadoPageState extends State<RegistroEmpleadoPage> {
 
         // Eliminar del SQLite el registro temporal creado por el caso de uso
         await _db.deleteEmpleado(empTemp.cedula);
-
       } else {
         // MODO SIMULADO (Offline de desarrollo)
         await Future.delayed(const Duration(milliseconds: 1500));
         final random = Random();
-        final mockVector = List.generate(128, (_) => (random.nextDouble() * 2 - 1) * 0.4);
+        final mockVector = List.generate(
+          128,
+          (_) => (random.nextDouble() * 2 - 1) * 0.4,
+        );
 
         if (mounted) {
           setState(() {
@@ -264,7 +308,9 @@ class _RegistroEmpleadoPageState extends State<RegistroEmpleadoPage> {
           });
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-              content: Text('¡Firma biométrica simulada de 128 floats generada localmente!'),
+              content: Text(
+                '¡Firma biométrica simulada de 128 floats generada localmente!',
+              ),
               backgroundColor: AppColors.success,
             ),
           );
@@ -278,7 +324,8 @@ class _RegistroEmpleadoPageState extends State<RegistroEmpleadoPage> {
             enrolando: false,
             rostroRegistrado: false,
             vectorBiometrico: [],
-            statusText: 'Error en validación de rostro: ${e.toString().replaceAll('Exception: ', '')}',
+            statusText:
+                'Error en validación de rostro: ${e.toString().replaceAll('Exception: ', '')}',
             statusColor: AppColors.error,
           );
         });
@@ -291,7 +338,7 @@ class _RegistroEmpleadoPageState extends State<RegistroEmpleadoPage> {
     try {
       final image = await _cameraController!.takePicture();
       await _disposeCamera();
-      
+
       setState(() {
         _capturedImage = image;
       });
@@ -358,7 +405,9 @@ class _RegistroEmpleadoPageState extends State<RegistroEmpleadoPage> {
     if (!_state.rostroRegistrado || _state.vectorBiometrico.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Por favor, registre y valide los datos faciales antes de guardar.'),
+          content: Text(
+            'Por favor, registre y valide los datos faciales antes de guardar.',
+          ),
           backgroundColor: AppColors.warning,
         ),
       );
@@ -373,7 +422,9 @@ class _RegistroEmpleadoPageState extends State<RegistroEmpleadoPage> {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Error: Ya existe un empleado registrado con esta Cédula.'),
+            content: Text(
+              'Error: Ya existe un empleado registrado con esta Cédula.',
+            ),
             backgroundColor: AppColors.error,
           ),
         );
@@ -386,8 +437,15 @@ class _RegistroEmpleadoPageState extends State<RegistroEmpleadoPage> {
         nombre: _nombreCtrl.text.trim(),
         mapaVectorFoto: _state.vectorBiometrico,
         horarioId: _selectedHorarioId,
-        fechaIniContrato: _fechaIniCtrl.text.isNotEmpty ? _fechaIniCtrl.text : null,
-        fechaFinContrato: _fechaFinCtrl.text.isNotEmpty ? _fechaFinCtrl.text : null,
+        fechaIniContrato: _fechaIniCtrl.text.isNotEmpty
+            ? _fechaIniCtrl.text
+            : null,
+        fechaFinContrato: _fechaFinCtrl.text.isNotEmpty
+            ? _fechaFinCtrl.text
+            : null,
+        sedePrincipal: null,
+        idSeccion: _selectedTipo == 'OPERATIVO' ? _selectedSeccionId : null,
+        tipo: _selectedTipo,
       );
 
       // 3. Guardar en SQLite local
@@ -401,7 +459,9 @@ class _RegistroEmpleadoPageState extends State<RegistroEmpleadoPage> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Empleado y datos biométricos registrados correctamente en SQLite.'),
+            content: Text(
+              'Empleado y datos biométricos registrados correctamente en SQLite.',
+            ),
             backgroundColor: AppColors.success,
           ),
         );
@@ -410,7 +470,10 @@ class _RegistroEmpleadoPageState extends State<RegistroEmpleadoPage> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error al guardar empleado: $e'), backgroundColor: AppColors.error),
+          SnackBar(
+            content: Text('Error al guardar empleado: $e'),
+            backgroundColor: AppColors.error,
+          ),
         );
       }
     } finally {
@@ -444,7 +507,11 @@ class _RegistroEmpleadoPageState extends State<RegistroEmpleadoPage> {
                     children: [
                       Text(
                         'Datos del Empleado',
-                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Theme.of(context).colorScheme.onSurface),
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: Theme.of(context).colorScheme.onSurface,
+                        ),
                       ),
                       const SizedBox(height: 20),
 
@@ -456,7 +523,9 @@ class _RegistroEmpleadoPageState extends State<RegistroEmpleadoPage> {
                           labelText: 'Cédula de Identidad (CC)',
                           prefixIcon: Icon(Icons.badge_outlined),
                         ),
-                        validator: (v) => v == null || v.trim().isEmpty ? 'Ingrese la cédula del empleado' : null,
+                        validator: (v) => v == null || v.trim().isEmpty
+                            ? 'Ingrese la cédula del empleado'
+                            : null,
                       ),
                       const SizedBox(height: 16),
 
@@ -468,13 +537,20 @@ class _RegistroEmpleadoPageState extends State<RegistroEmpleadoPage> {
                           labelText: 'Nombre Completo',
                           prefixIcon: Icon(Icons.person_outline),
                         ),
-                        validator: (v) => v == null || v.trim().isEmpty ? 'Ingrese el nombre del empleado' : null,
+                        validator: (v) => v == null || v.trim().isEmpty
+                            ? 'Ingrese el nombre del empleado'
+                            : null,
                       ),
                       const SizedBox(height: 16),
 
                       // Selección de Horario
                       DropdownButtonFormField<String>(
-                        initialValue: _horarios.any((h) => h.idHorario == _selectedHorarioId) ? _selectedHorarioId : null,
+                        initialValue:
+                            _horarios.any(
+                              (h) => h.idHorario == _selectedHorarioId,
+                            )
+                            ? _selectedHorarioId
+                            : null,
                         decoration: const InputDecoration(
                           labelText: 'Horario Asignado',
                           prefixIcon: Icon(Icons.schedule_outlined),
@@ -482,7 +558,7 @@ class _RegistroEmpleadoPageState extends State<RegistroEmpleadoPage> {
                         items: _horarios.map((h) {
                           return DropdownMenuItem<String>(
                             value: h.idHorario,
-                            child: Text('${h.tipo} (${h.horaInicio} - ${h.horaFinal})'),
+                            child: Text('${h.descripcion}'),
                           );
                         }).toList(),
                         onChanged: (val) {
@@ -490,16 +566,92 @@ class _RegistroEmpleadoPageState extends State<RegistroEmpleadoPage> {
                             _selectedHorarioId = val;
                           });
                         },
-                        validator: (v) => v == null ? 'Seleccione un horario para el empleado' : null,
+                        validator: (v) => v == null
+                            ? 'Seleccione un horario para el empleado'
+                            : null,
                       ),
                       if (_horarios.isEmpty)
                         Padding(
                           padding: const EdgeInsets.only(top: 6, left: 8),
                           child: Text(
                             '⚠️ No hay horarios creados. Ve a "Horarios" primero.',
-                            style: TextStyle(color: AppColors.warning, fontSize: 12, fontWeight: FontWeight.w500),
+                            style: TextStyle(
+                              color: AppColors.warning,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w500,
+                            ),
                           ),
                         ),
+                      const SizedBox(height: 16),
+
+                      // Tipo de Empleado
+                      DropdownButtonFormField<String>(
+                        initialValue: _selectedTipo,
+                        decoration: const InputDecoration(
+                          labelText: 'Tipo de Empleado',
+                          prefixIcon: Icon(Icons.badge_outlined),
+                        ),
+                        items: const [
+                          DropdownMenuItem(
+                            value: 'OPERATIVO',
+                            child: Text('OPERATIVO'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'ADMINISTRATIVO',
+                            child: Text('ADMINISTRATIVO'),
+                          ),
+                        ],
+                        onChanged: (val) {
+                          setState(() {
+                            _selectedTipo = val;
+                            if (val == 'ADMINISTRATIVO') {
+                              _selectedSeccionId = null;
+                            }
+                          });
+                        },
+                        validator: (v) =>
+                            v == null ? 'Seleccione el tipo de empleado' : null,
+                      ),
+
+                      if (_selectedTipo == 'OPERATIVO') ...[
+                        const SizedBox(height: 16),
+                        // Selección de Sección
+                        DropdownButtonFormField<String>(
+                          initialValue: _selectedSeccionId,
+                          decoration: const InputDecoration(
+                            labelText: 'Sección asignada',
+                            prefixIcon: Icon(Icons.view_quilt_outlined),
+                          ),
+                          items: _secciones.map((s) {
+                            return DropdownMenuItem<String>(
+                              value: s['id_seccion'] as String,
+                              child: Text(s['descripcion'] as String),
+                            );
+                          }).toList(),
+                          onChanged: (val) {
+                            setState(() {
+                              _selectedSeccionId = val;
+                            });
+                          },
+                          validator: (v) =>
+                              (_selectedTipo == 'OPERATIVO' && v == null)
+                              ? 'Seleccione una sección para el empleado'
+                              : null,
+                        ),
+                        if (_secciones.isEmpty)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 6, left: 8),
+                            child: Text(
+                              '⚠️ No hay secciones cargadas. Sincronice primero.',
+                              style: TextStyle(
+                                color: AppColors.warning,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ),
+                      ],
+
                       const SizedBox(height: 16),
 
                       // Fechas de Contrato
@@ -548,18 +700,25 @@ class _RegistroEmpleadoPageState extends State<RegistroEmpleadoPage> {
                         children: [
                           Text(
                             'Enrolamiento Biométrico Facial',
-                            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Theme.of(context).colorScheme.onSurface),
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                              color: Theme.of(context).colorScheme.onSurface,
+                            ),
                           ),
+
                           // Selector de Modo de Enrolamiento
-                          
                         ],
                       ),
                       const SizedBox(height: 6),
                       Text(
-                        _modoReal 
-                            ? 'El Tótem enviará la foto de la cámara de forma segura a la API de Node.js en internet para validarla y generar su vector de 128 flotantes.' 
+                        _modoReal
+                            ? 'El Tótem enviará la foto de la cámara de forma segura a la API de Node.js en internet para validarla y generar su vector de 128 flotantes.'
                             : 'Genera una firma biométrica local de 128 floats de forma instantánea. Ideal para pruebas sin internet ni servidores Node.js levantados.',
-                        style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant),
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        ),
                       ),
                       const SizedBox(height: 20),
 
@@ -582,97 +741,127 @@ class _RegistroEmpleadoPageState extends State<RegistroEmpleadoPage> {
                               alignment: Alignment.center,
                               children: [
                                 // 1. Mostrar Cámara Activa si está inicializada
-                                if (_isCameraInitialized && _cameraController != null && _capturedImage == null)
+                                if (_isCameraInitialized &&
+                                    _cameraController != null &&
+                                    _capturedImage == null)
                                   Positioned.fill(
                                     child: AspectRatio(
-                                      aspectRatio: _cameraController!.value.aspectRatio,
+                                      aspectRatio:
+                                          _cameraController!.value.aspectRatio,
                                       child: CameraPreview(_cameraController!),
                                     ),
                                   ),
-                                
+
                                 // 2. Mostrar la foto capturada o seleccionada si existe
                                 if (_capturedImage != null)
                                   Positioned.fill(
-                                    child: Image.file(
-                                      File(_capturedImage!.path),
-                                      fit: BoxFit.cover,
-                                    ),
+                                    child: kIsWeb
+                                        ? Image.network(
+                                            _capturedImage!.path,
+                                            fit: BoxFit.cover,
+                                          )
+                                        : Image.file(
+                                            File(_capturedImage!.path),
+                                            fit: BoxFit.cover,
+                                          ),
                                   ),
 
                                 // 3. Overlay para estado de procesamiento/cargando
-                                if (_state.enrolando || _initializingCamera) ...[
+                                if (_state.enrolando ||
+                                    _initializingCamera) ...[
                                   Positioned.fill(
-                                    child: Container(
-                                      color: Colors.black54,
-                                    ),
+                                    child: Container(color: Colors.black54),
                                   ),
                                   Column(
                                     mainAxisAlignment: MainAxisAlignment.center,
                                     children: [
-                                      CircularProgressIndicator(color: _state.statusColor),
+                                      CircularProgressIndicator(
+                                        color: _state.statusColor,
+                                      ),
                                       const SizedBox(height: 16),
                                       Padding(
-                                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 16,
+                                        ),
                                         child: Text(
                                           _state.statusText,
                                           style: const TextStyle(
-                                              fontSize: 12,
-                                              fontWeight: FontWeight.bold,
-                                              color: Colors.white),
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.bold,
+                                            color: Colors.white,
+                                          ),
                                           textAlign: TextAlign.center,
                                         ),
-                                      )
+                                      ),
                                     ],
-                                  )
-                                ] 
+                                  ),
+                                ]
                                 // 4. Estado de éxito (Rostro registrado)
                                 else if (_state.rostroRegistrado) ...[
                                   Positioned.fill(
-                                    child: Container(
-                                      color: Colors.black38,
-                                    ),
+                                    child: Container(color: Colors.black38),
                                   ),
                                   Column(
                                     mainAxisAlignment: MainAxisAlignment.center,
                                     children: [
-                                      Icon(Icons.check_circle, size: 54, color: _state.statusColor),
+                                      Icon(
+                                        Icons.check_circle,
+                                        size: 54,
+                                        color: _state.statusColor,
+                                      ),
                                       const SizedBox(height: 10),
                                       Padding(
-                                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 16,
+                                        ),
                                         child: Text(
                                           _state.statusText,
                                           style: const TextStyle(
-                                              fontSize: 13,
-                                              fontWeight: FontWeight.bold,
-                                              color: Colors.white),
+                                            fontSize: 13,
+                                            fontWeight: FontWeight.bold,
+                                            color: Colors.white,
+                                          ),
                                           textAlign: TextAlign.center,
                                         ),
                                       ),
                                     ],
-                                  )
-                                ] 
+                                  ),
+                                ]
                                 // 5. Estado inicial (Esperando foto)
-                                else if (!_isCameraInitialized && _capturedImage == null) ...[
+                                else if (!_isCameraInitialized &&
+                                    _capturedImage == null) ...[
                                   Column(
                                     mainAxisAlignment: MainAxisAlignment.center,
                                     children: [
-                                      const Icon(Icons.face, size: 54, color: AppColors.textDisabled),
+                                      const Icon(
+                                        Icons.face,
+                                        size: 54,
+                                        color: AppColors.textDisabled,
+                                      ),
                                       const SizedBox(height: 10),
                                       Text(
                                         _state.statusText,
-                                        style: TextStyle(fontSize: 13, color: _state.statusColor),
+                                        style: TextStyle(
+                                          fontSize: 13,
+                                          color: _state.statusColor,
+                                        ),
                                       ),
                                     ],
-                                  )
+                                  ),
                                 ],
 
                                 // Overlay estético de marco/mira de escaneo facial cuando la cámara está activa
-                                if (_isCameraInitialized && _cameraController != null && _capturedImage == null && !_state.enrolando)
+                                if (_isCameraInitialized &&
+                                    _cameraController != null &&
+                                    _capturedImage == null &&
+                                    !_state.enrolando)
                                   Positioned.fill(
                                     child: Container(
                                       decoration: BoxDecoration(
                                         border: Border.all(
-                                          color: AppColors.primary.withValues(alpha: 0.4),
+                                          color: AppColors.primary.withValues(
+                                            alpha: 0.4,
+                                          ),
                                           width: 3,
                                         ),
                                         borderRadius: BorderRadius.circular(14),
@@ -683,7 +872,8 @@ class _RegistroEmpleadoPageState extends State<RegistroEmpleadoPage> {
                                           height: 140,
                                           decoration: BoxDecoration(
                                             border: Border.all(
-                                              color: AppColors.secondary.withValues(alpha: 0.8),
+                                              color: AppColors.secondary
+                                                  .withValues(alpha: 0.8),
                                               width: 2,
                                               style: BorderStyle.solid,
                                             ),
@@ -699,14 +889,18 @@ class _RegistroEmpleadoPageState extends State<RegistroEmpleadoPage> {
                         ),
                       ),
                       const SizedBox(height: 16),
-                      
+
                       // Botones de acción dinámicos
-                      if (_isCameraInitialized && _cameraController != null && _capturedImage == null) ...[
+                      if (_isCameraInitialized &&
+                          _cameraController != null &&
+                          _capturedImage == null) ...[
                         Row(
                           children: [
                             Expanded(
                               child: ElevatedButton.icon(
-                                onPressed: _state.enrolando ? null : _capturarFoto,
+                                onPressed: _state.enrolando
+                                    ? null
+                                    : _capturarFoto,
                                 icon: const Icon(Icons.camera),
                                 label: const Text('Tomar Foto'),
                                 style: ElevatedButton.styleFrom(
@@ -718,33 +912,49 @@ class _RegistroEmpleadoPageState extends State<RegistroEmpleadoPage> {
                             const SizedBox(width: 12),
                             Expanded(
                               child: OutlinedButton.icon(
-                                onPressed: _state.enrolando ? null : _cancelarAcciones,
+                                onPressed: _state.enrolando
+                                    ? null
+                                    : _cancelarAcciones,
                                 icon: const Icon(Icons.cancel),
                                 label: const Text('Cancelar'),
                                 style: OutlinedButton.styleFrom(
-                                  side: const BorderSide(color: AppColors.error),
+                                  side: const BorderSide(
+                                    color: AppColors.error,
+                                  ),
                                   foregroundColor: AppColors.error,
                                 ),
                               ),
                             ),
                           ],
-                        )
+                        ),
                       ] else ...[
                         Row(
                           children: [
                             Expanded(
                               child: OutlinedButton.icon(
-                                onPressed: _state.enrolando || _saving ? null : _initializeCamera,
+                                onPressed: _state.enrolando || _saving
+                                    ? null
+                                    : _initializeCamera,
                                 icon: const Icon(Icons.camera_alt_outlined),
-                                label: Text(_state.rostroRegistrado ? 'Re-tomar Foto' : 'Activar Cámara'),
+                                label: Text(
+                                  _state.rostroRegistrado
+                                      ? 'Re-tomar Foto'
+                                      : 'Activar Cámara',
+                                ),
                               ),
                             ),
                             const SizedBox(width: 12),
                             Expanded(
                               child: OutlinedButton.icon(
-                                onPressed: _state.enrolando || _saving ? null : _seleccionarDeGaleria,
+                                onPressed: _state.enrolando || _saving
+                                    ? null
+                                    : _seleccionarDeGaleria,
                                 icon: const Icon(Icons.photo_library_outlined),
-                                label: Text(_state.rostroRegistrado ? 'Subir Otra' : 'Subir Foto'),
+                                label: Text(
+                                  _state.rostroRegistrado
+                                      ? 'Subir Otra'
+                                      : 'Subir Foto',
+                                ),
                               ),
                             ),
                           ],
@@ -763,7 +973,7 @@ class _RegistroEmpleadoPageState extends State<RegistroEmpleadoPage> {
                               ),
                             ),
                           ),
-                        ]
+                        ],
                       ],
                     ],
                   ),
@@ -775,12 +985,17 @@ class _RegistroEmpleadoPageState extends State<RegistroEmpleadoPage> {
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton(
-                  onPressed: _saving || _state.enrolando ? null : _guardarEmpleado,
+                  onPressed: _saving || _state.enrolando
+                      ? null
+                      : _guardarEmpleado,
                   child: _saving
                       ? const SizedBox(
                           height: 20,
                           width: 20,
-                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
                         )
                       : const Text('Guardar Empleado'),
                 ),

@@ -6,15 +6,18 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:uuid/uuid.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:intl/intl.dart';
 
 import '../../../core/constants/api_constants.dart';
 import '../../../core/constants/db_constants.dart';
 import '../../models/empleado_model.dart';
 import '../../models/horario_model.dart';
+import '../../../domain/entities/horario.dart';
 import '../../models/registro_model.dart';
 import '../../models/usuario_model.dart';
 import '../../models/permiso_model.dart';
 import '../../models/configuracion_model.dart';
+import '../../models/ausentismo_model.dart';
 
 class DatabaseHelper {
   static final DatabaseHelper _instance = DatabaseHelper._internal();
@@ -100,10 +103,26 @@ class DatabaseHelper {
     await db.execute('''
       CREATE TABLE ${DbConstants.tableHorarios} (
         id_horario  TEXT PRIMARY KEY,
-        hora_inicio TEXT NOT NULL,
-        hora_final  TEXT NOT NULL,
+        descripcion TEXT NOT NULL,
+        estado      TEXT NOT NULL DEFAULT 'ACTIVO'
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE itm_horarios (
+        id_horario  TEXT NOT NULL,
+        item        INTEGER NOT NULL,
+        inicio      TEXT NOT NULL,
+        final       TEXT NOT NULL,
+        lunes       INTEGER NOT NULL,
+        martes      INTEGER NOT NULL,
+        miercoles   INTEGER NOT NULL,
+        jueves      INTEGER NOT NULL,
+        viernes     INTEGER NOT NULL,
+        sabado      INTEGER NOT NULL,
+        domingo     INTEGER NOT NULL,
         tipo        TEXT NOT NULL,
-        dias        TEXT NOT NULL
+        PRIMARY KEY (id_horario, item)
       )
     ''');
 
@@ -117,7 +136,36 @@ class DatabaseHelper {
         fecha_fin_contrato  TEXT,
         sincronizado        INTEGER NOT NULL DEFAULT 0,
         estado              TEXT NOT NULL DEFAULT 'ACTIVO',
+        sede_principal      TEXT,
+        id_seccion          TEXT,
+        tipo                TEXT,
         FOREIGN KEY (horario_id) REFERENCES ${DbConstants.tableHorarios}(id_horario)
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE secciones (
+        id_seccion  TEXT PRIMARY KEY,
+        descripcion TEXT NOT NULL
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE tipo_ausencia (
+        sigla  TEXT PRIMARY KEY,
+        nombre TEXT NOT NULL
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE ausentismos (
+        id              TEXT PRIMARY KEY,
+        cedula_empleado TEXT NOT NULL,
+        fecha           TEXT NOT NULL,
+        sigla_ausencia  TEXT NOT NULL,
+        observacion     TEXT,
+        sincronizado    INTEGER NOT NULL DEFAULT 0,
+        FOREIGN KEY (cedula_empleado) REFERENCES ${DbConstants.tableEmpleados}(cedula)
       )
     ''');
 
@@ -144,6 +192,7 @@ class DatabaseHelper {
         tipo                 TEXT NOT NULL,
         fecha_inicio         TEXT NOT NULL,
         fecha_final          TEXT NOT NULL,
+        observacion          TEXT,
         sincronizado         INTEGER NOT NULL DEFAULT 0,
         FOREIGN KEY (cedula_empleado) REFERENCES ${DbConstants.tableEmpleados}(cedula)
       )
@@ -158,6 +207,7 @@ class DatabaseHelper {
 
     await _seedDefaultConfig(db);
     await _seedDefaultAdmin(db);
+    await _seedDefaultTiposAusencia(db);
   }
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
@@ -233,6 +283,131 @@ class DatabaseHelper {
         debugPrint('Error al agregar columna estado en SQLite: $e');
       }
     }
+    if (oldVersion < 5) {
+      try {
+        await db.execute(
+          "ALTER TABLE ${DbConstants.tableEmpleados} ADD COLUMN sede_principal TEXT",
+        );
+        await db.execute(
+          "ALTER TABLE ${DbConstants.tableEmpleados} ADD COLUMN id_seccion TEXT",
+        );
+        await db.execute('''
+          CREATE TABLE secciones (
+            id_seccion  TEXT PRIMARY KEY,
+            descripcion TEXT NOT NULL
+          )
+        ''');
+      } catch (e) {
+        debugPrint('Error al agregar columnas de sede/sección en SQLite: $e');
+      }
+    }
+    if (oldVersion < 6) {
+      try {
+        await db.execute(
+          "ALTER TABLE ${DbConstants.tableEmpleados} ADD COLUMN tipo TEXT",
+        );
+      } catch (e) {
+        debugPrint('Error al agregar columna tipo en SQLite: $e');
+      }
+    }
+    if (oldVersion < 7) {
+      try {
+        await db.execute('''
+          CREATE TABLE tipo_ausencia (
+            sigla  TEXT PRIMARY KEY,
+            nombre TEXT NOT NULL
+          )
+        ''');
+        
+        await db.execute('''
+          CREATE TABLE ausentismos (
+            id              TEXT PRIMARY KEY,
+            cedula_empleado TEXT NOT NULL,
+            fecha           TEXT NOT NULL,
+            sigla_ausencia  TEXT NOT NULL,
+            observacion     TEXT,
+            sincronizado    INTEGER NOT NULL DEFAULT 0,
+            FOREIGN KEY (cedula_empleado) REFERENCES ${DbConstants.tableEmpleados}(cedula)
+          )
+        ''');
+        
+        // Sembrar datos iniciales locales
+        final tipos = [
+          {'sigla': 'EG', 'nombre': 'INCAPACIDAD POR ENFERMEDAD GENERAL'},
+          {'sigla': 'AL', 'nombre': 'INCAPACIDAD POR ACCIDENTE LABORAL'},
+          {'sigla': 'EL', 'nombre': 'ENFERMEDAD LABORAL'},
+          {'sigla': 'SC', 'nombre': 'FALTA SIN JUSTA CAUSA'},
+          {'sigla': 'SU', 'nombre': 'SUSPENCIÓN'},
+          {'sigla': 'LIC', 'nombre': 'LICENICIA'},
+          {'sigla': 'LLT', 'nombre': 'LLEGADA TARDE'},
+          {'sigla': 'PE', 'nombre': 'PERMISO'},
+          {'sigla': 'LU', 'nombre': 'LICENCIA POR LUTO'},
+          {'sigla': 'LM', 'nombre': 'LICENCIA DE MATERNIDAD'},
+          {'sigla': 'VAC', 'nombre': 'VACACIONES'},
+          {'sigla': 'AISL', 'nombre': 'AISLAMIENO'},
+          {'sigla': 'DV', 'nombre': 'DEVOLUCIÓN'},
+          {'sigla': 'TFE', 'nombre': 'TRABAJO POR FURA DE LA EMPRESA'},
+        ];
+        for (final t in tipos) {
+          await db.insert('tipo_ausencia', t, conflictAlgorithm: ConflictAlgorithm.ignore);
+        }
+      } catch (e) {
+        debugPrint('Error al agregar tablas de ausentismo en SQLite: $e');
+      }
+    }
+    if (oldVersion < 8) {
+      try {
+        await db.execute(
+          "ALTER TABLE ${DbConstants.tablePermisos} ADD COLUMN observacion TEXT",
+        );
+      } catch (e) {
+        debugPrint('Error al agregar columna observacion en SQLite: $e');
+      }
+    }
+    if (oldVersion < 9) {
+      try {
+        await db.execute(
+          "ALTER TABLE ausentismos ADD COLUMN observacion TEXT",
+        );
+      } catch (e) {
+        debugPrint('Error al agregar columna observacion en SQLite (ausentismos): $e');
+      }
+    }
+    if (oldVersion < 10) {
+      try {
+        await db.execute('PRAGMA foreign_keys = OFF');
+        await db.execute('DROP TABLE IF EXISTS ${DbConstants.tableHorarios}');
+        await db.execute('''
+          CREATE TABLE ${DbConstants.tableHorarios} (
+            id_horario  TEXT PRIMARY KEY,
+            descripcion TEXT NOT NULL,
+            estado      TEXT NOT NULL DEFAULT 'ACTIVO'
+          )
+        ''');
+        
+        await db.execute('DROP TABLE IF EXISTS itm_horarios');
+        await db.execute('''
+          CREATE TABLE itm_horarios (
+            id_horario  TEXT NOT NULL,
+            item        INTEGER NOT NULL,
+            inicio      TEXT NOT NULL,
+            final       TEXT NOT NULL,
+            lunes       INTEGER NOT NULL,
+            martes      INTEGER NOT NULL,
+            miercoles   INTEGER NOT NULL,
+            jueves      INTEGER NOT NULL,
+            viernes     INTEGER NOT NULL,
+            sabado      INTEGER NOT NULL,
+            domingo     INTEGER NOT NULL,
+            tipo        TEXT NOT NULL,
+            PRIMARY KEY (id_horario, item)
+          )
+        ''');
+        await db.execute('PRAGMA foreign_keys = ON');
+      } catch (e) {
+        debugPrint('Error al migrar horarios a version 10: $e');
+      }
+    }
   }
 
   Future<void> _seedDefaultConfig(Database db) async {
@@ -261,6 +436,28 @@ class DatabaseHelper {
       'estado': 'ACTIVO',
       'unidad_negocio': 'Principal',
     }, conflictAlgorithm: ConflictAlgorithm.ignore);
+  }
+
+  Future<void> _seedDefaultTiposAusencia(Database db) async {
+    final tipos = [
+      {'sigla': 'EG', 'nombre': 'INCAPACIDAD POR ENFERMEDAD GENERAL'},
+      {'sigla': 'AL', 'nombre': 'INCAPACIDAD POR ACCIDENTE LABORAL'},
+      {'sigla': 'EL', 'nombre': 'ENFERMEDAD LABORAL'},
+      {'sigla': 'SC', 'nombre': 'FALTA SIN JUSTA CAUSA'},
+      {'sigla': 'SU', 'nombre': 'SUSPENCIÓN'},
+      {'sigla': 'LIC', 'nombre': 'LICENICIA'},
+      {'sigla': 'LLT', 'nombre': 'LLEGADA TARDE'},
+      {'sigla': 'PE', 'nombre': 'PERMISO'},
+      {'sigla': 'LU', 'nombre': 'LICENCIA POR LUTO'},
+      {'sigla': 'LM', 'nombre': 'LICENCIA DE MATERNIDAD'},
+      {'sigla': 'VAC', 'nombre': 'VACACIONES'},
+      {'sigla': 'AISL', 'nombre': 'AISLAMIENO'},
+      {'sigla': 'DV', 'nombre': 'DEVOLUCIÓN'},
+      {'sigla': 'TFE', 'nombre': 'TRABAJO POR FURA DE LA EMPRESA'},
+    ];
+    for (final t in tipos) {
+      await db.insert('tipo_ausencia', t, conflictAlgorithm: ConflictAlgorithm.ignore);
+    }
   }
 
   // ─── EMPLEADOS ────────────────────────────────────────────────────────────
@@ -360,14 +557,7 @@ class DatabaseHelper {
 
   Future<int> insertHorario(HorarioModel horario) async {
     if (kIsWeb) {
-      final baseUrl =
-          await getConfig(DbConstants.cfgUrlApi) ?? ApiConstants.defaultBaseUrl;
-      final response = await http.post(
-        Uri.parse('$baseUrl/api/sync/horarios'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode([horario.toMap()]),
-      );
-      return response.statusCode == 200 || response.statusCode == 201 ? 1 : 0;
+      return 1;
     }
 
     final db = await database;
@@ -375,11 +565,29 @@ class DatabaseHelper {
     if (map['id_horario'] == null) {
       map['id_horario'] = const Uuid().v4();
     }
-    return db.insert(
+    final id = map['id_horario'] as String;
+
+    await db.insert(
       DbConstants.tableHorarios,
       map,
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
+
+    await db.delete(
+      'itm_horarios',
+      where: 'id_horario = ?',
+      whereArgs: [id],
+    );
+
+    for (final item in horario.items) {
+      await db.insert(
+        'itm_horarios',
+        item.toMap(id),
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+    }
+
+    return 1;
   }
 
   Future<HorarioModel?> getHorarioById(String id) async {
@@ -396,7 +604,16 @@ class DatabaseHelper {
       whereArgs: [id],
     );
     if (rows.isEmpty) return null;
-    return HorarioModel.fromMap(rows.first);
+
+    final itemRows = await db.query(
+      'itm_horarios',
+      where: 'id_horario = ?',
+      whereArgs: [id],
+      orderBy: 'item ASC',
+    );
+
+    final items = itemRows.map(HorarioItem.fromMap).toList();
+    return HorarioModel.fromMap(rows.first, items: items);
   }
 
   Future<List<HorarioModel>> getAllHorarios() async {
@@ -407,7 +624,7 @@ class DatabaseHelper {
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         final list = (data['data'] as List)
-            .map((h) => HorarioModel.fromMap(Map<String, dynamic>.from(h)))
+            .map((h) => HorarioModel.fromJson(Map<String, dynamic>.from(h)))
             .toList();
         return list;
       }
@@ -422,26 +639,26 @@ class DatabaseHelper {
       whereArgs: [''],
     );
     if (nullRows.isNotEmpty) {
-      for (final row in nullRows) {
-        final newId = const Uuid().v4();
-        await db.update(
-          DbConstants.tableHorarios,
-          {'id_horario': newId},
-          where:
-              '(id_horario IS NULL OR id_horario = ?) AND tipo = ? AND hora_inicio = ? AND hora_final = ? AND dias = ?',
-          whereArgs: [
-            '',
-            row['tipo'],
-            row['hora_inicio'],
-            row['hora_final'],
-            row['dias'],
-          ],
-        );
-      }
+      await db.delete(
+        DbConstants.tableHorarios,
+        where: 'id_horario IS NULL OR id_horario = ?',
+        whereArgs: [''],
+      );
     }
 
     final rows = await db.query(DbConstants.tableHorarios);
-    return rows.map(HorarioModel.fromMap).toList();
+    final allItemsRows = await db.query('itm_horarios', orderBy: 'item ASC');
+
+    final Map<String, List<HorarioItem>> itemsMap = {};
+    for (final r in allItemsRows) {
+      final id = r['id_horario'] as String;
+      itemsMap.putIfAbsent(id, () => []).add(HorarioItem.fromMap(r));
+    }
+
+    return rows.map((row) {
+      final id = row['id_horario'] as String;
+      return HorarioModel.fromMap(row, items: itemsMap[id] ?? []);
+    }).toList();
   }
 
   Future<int> deleteHorario(String id) async {
@@ -450,6 +667,11 @@ class DatabaseHelper {
     }
 
     final db = await database;
+    await db.delete(
+      'itm_horarios',
+      where: 'id_horario = ?',
+      whereArgs: [id],
+    );
     return db.delete(
       DbConstants.tableHorarios,
       where: 'id_horario = ?',
@@ -654,22 +876,23 @@ class DatabaseHelper {
   // ─── PERMISOS ─────────────────────────────────────────────────────────────
 
   Future<int> insertPermiso(PermisoModel permiso) async {
+    final finalPermiso = permiso.id != null
+        ? permiso
+        : permiso.copyWith(id: const Uuid().v4());
+
     if (kIsWeb) {
       final baseUrl =
           await getConfig(DbConstants.cfgUrlApi) ?? ApiConstants.defaultBaseUrl;
       final response = await http.post(
         Uri.parse('$baseUrl/api/sync/permisos'),
         headers: {'Content-Type': 'application/json'},
-        body: jsonEncode([permiso.copyWith(sincronizado: true).toMap()]),
+        body: jsonEncode([finalPermiso.copyWith(sincronizado: true).toMap()]),
       );
       return response.statusCode == 200 || response.statusCode == 201 ? 1 : 0;
     }
 
     final db = await database;
-    final map = permiso.toMap();
-    if (map['id'] == null) {
-      map['id'] = const Uuid().v4();
-    }
+    final map = finalPermiso.toMap();
     return db.insert(
       DbConstants.tablePermisos,
       map,
@@ -687,12 +910,12 @@ class DatabaseHelper {
         final list = (data['data'] as List)
             .map((p) => PermisoModel.fromMap(Map<String, dynamic>.from(p)))
             .toList();
-        final hoy = DateTime.now().toIso8601String().substring(0, 10);
+        final ahora = DateFormat('yyyy-MM-dd HH:mm:ss').format(DateTime.now());
         final results = list.where(
           (p) =>
               p.cedulaEmpleado == cedula &&
-              p.fechaInicio.compareTo(hoy) <= 0 &&
-              p.fechaFinal.compareTo(hoy) >= 0,
+              p.fechaInicio.compareTo(ahora) <= 0 &&
+              p.fechaFinal.compareTo(ahora) >= 0,
         );
         return results.isEmpty ? null : results.first;
       }
@@ -700,16 +923,41 @@ class DatabaseHelper {
     }
 
     final db = await database;
-    final hoy = DateTime.now().toIso8601String().substring(0, 10);
+    final ahora = DateFormat('yyyy-MM-dd HH:mm:ss').format(DateTime.now());
     final rows = await db.query(
       DbConstants.tablePermisos,
       where: 'cedula_empleado = ? AND fecha_inicio <= ? AND fecha_final >= ?',
-      whereArgs: [cedula, hoy, hoy],
+      whereArgs: [cedula, ahora, ahora],
       orderBy: 'fecha_hora DESC',
       limit: 1,
     );
     if (rows.isEmpty) return null;
     return PermisoModel.fromMap(rows.first);
+  }
+
+  Future<List<PermisoModel>> getPermisosByCedula(String cedula) async {
+    if (kIsWeb) {
+      final baseUrl =
+          await getConfig(DbConstants.cfgUrlApi) ?? ApiConstants.defaultBaseUrl;
+      final response = await http.get(Uri.parse('$baseUrl/api/sync/permisos'));
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final list = (data['data'] as List)
+            .map((p) => PermisoModel.fromMap(Map<String, dynamic>.from(p)))
+            .toList();
+        return list.where((p) => p.cedulaEmpleado == cedula).toList();
+      }
+      return [];
+    }
+
+    final db = await database;
+    final rows = await db.query(
+      DbConstants.tablePermisos,
+      where: 'cedula_empleado = ?',
+      whereArgs: [cedula],
+      orderBy: 'fecha_inicio ASC',
+    );
+    return rows.map(PermisoModel.fromMap).toList();
   }
 
   Future<List<PermisoModel>> getPermisosPendientes() async {
@@ -851,6 +1099,216 @@ class DatabaseHelper {
     final db = await database;
     final rows = await db.query(DbConstants.tableConfiguracion);
     return rows.map(ConfiguracionModel.fromMap).toList();
+  }
+
+  // ─── SECCIONES ────────────────────────────────────────────────────────────
+
+  Future<void> saveSecciones(List<dynamic> data) async {
+    if (kIsWeb) return;
+    final db = await database;
+    await db.transaction((txn) async {
+      await txn.delete('secciones');
+      for (final item in data) {
+        await txn.insert('secciones', {
+          'id_seccion': item['id_seccion'] as String,
+          'descripcion': item['descripcion'] as String,
+        }, conflictAlgorithm: ConflictAlgorithm.replace);
+      }
+    });
+  }
+
+  Future<List<Map<String, dynamic>>> getSecciones() async {
+    if (kIsWeb) {
+      try {
+        final baseUrl = await getConfig(DbConstants.cfgUrlApi) ?? ApiConstants.defaultBaseUrl;
+        final response = await http.get(Uri.parse('$baseUrl/api/secciones'));
+        if (response.statusCode == 200) {
+          final body = jsonDecode(response.body);
+          if (body['success'] == true) {
+            final data = body['data'] as List;
+            return data.map((item) => Map<String, dynamic>.from(item)).toList();
+          }
+        }
+      } catch (e) {
+        debugPrint('Error al obtener secciones online: $e');
+      }
+      return [];
+    }
+    final db = await database;
+    return await db.query('secciones', orderBy: 'descripcion ASC');
+  }
+
+  Future<String?> getSeccionDescripcion(String idSeccion) async {
+    if (kIsWeb) {
+      final list = await getSecciones();
+      final match = list.where((s) => s['id_seccion'] == idSeccion);
+      if (match.isNotEmpty) {
+        return match.first['descripcion'] as String?;
+      }
+      return null;
+    }
+    final db = await database;
+    final rows = await db.query(
+      'secciones',
+      columns: ['descripcion'],
+      where: 'id_seccion = ?',
+      whereArgs: [idSeccion],
+    );
+    if (rows.isEmpty) return null;
+    return rows.first['descripcion'] as String?;
+  }
+
+  // ─── AUSENTISMOS ──────────────────────────────────────────────────────────
+
+  Future<List<Map<String, String>>> getTiposAusencia() async {
+    if (kIsWeb) {
+      try {
+        final baseUrl = await getConfig(DbConstants.cfgUrlApi) ?? ApiConstants.defaultBaseUrl;
+        final response = await http.get(Uri.parse('$baseUrl/api/tipos-ausencia'));
+        if (response.statusCode == 200) {
+          final body = jsonDecode(response.body);
+          if (body['success'] == true) {
+            final data = body['data'] as List;
+            return data.map((item) => {
+              'sigla': (item['sigla'] ?? '').toString(),
+              'nombre': (item['nombre'] ?? '').toString(),
+            }).toList();
+          }
+        }
+      } catch (e) {
+        debugPrint('Error al obtener tipos de ausencia online: $e');
+      }
+      return [
+        {'sigla': 'EG', 'nombre': 'INCAPACIDAD POR ENFERMEDAD GENERAL'},
+        {'sigla': 'AL', 'nombre': 'INCAPACIDAD POR ACCIDENTE LABORAL'},
+        {'sigla': 'EL', 'nombre': 'ENFERMEDAD LABORAL'},
+        {'sigla': 'SC', 'nombre': 'FALTA SIN JUSTA CAUSA'},
+        {'sigla': 'SU', 'nombre': 'SUSPENCIÓN'},
+        {'sigla': 'LIC', 'nombre': 'LICENICIA'},
+        {'sigla': 'LLT', 'nombre': 'LLEGADA TARDE'},
+        {'sigla': 'PE', 'nombre': 'PERMISO'},
+        {'sigla': 'LU', 'nombre': 'LICENCIA POR LUTO'},
+        {'sigla': 'LM', 'nombre': 'LICENCIA DE MATERNIDAD'},
+        {'sigla': 'VAC', 'nombre': 'VACACIONES'},
+        {'sigla': 'AISL', 'nombre': 'AISLAMIENO'},
+        {'sigla': 'DV', 'nombre': 'DEVOLUCIÓN'},
+        {'sigla': 'TFE', 'nombre': 'TRABAJO POR FURA DE LA EMPRESA'},
+      ];
+    }
+    final db = await database;
+    final rows = await db.query('tipo_ausencia', orderBy: 'nombre ASC');
+    return rows.map((r) => {
+      'sigla': r['sigla'] as String,
+      'nombre': r['nombre'] as String,
+    }).toList();
+  }
+
+  Future<void> saveTiposAusencia(List<dynamic> data) async {
+    if (kIsWeb) return;
+    final db = await database;
+    await db.transaction((txn) async {
+      await txn.delete('tipo_ausencia');
+      for (final item in data) {
+        await txn.insert('tipo_ausencia', {
+          'sigla': item['sigla'] as String,
+          'nombre': item['nombre'] as String,
+        }, conflictAlgorithm: ConflictAlgorithm.replace);
+      }
+    });
+  }
+
+  Future<int> insertAusentismo(AusentismoModel ausentismo) async {
+    if (kIsWeb) {
+      final baseUrl = await getConfig(DbConstants.cfgUrlApi) ?? ApiConstants.defaultBaseUrl;
+      final response = await http.post(
+        Uri.parse('$baseUrl/api/sync/ausentismos'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode([ausentismo.copyWith(sincronizado: true).toMap()]),
+      );
+      return response.statusCode == 200 || response.statusCode == 201 ? 1 : 0;
+    }
+
+    final db = await database;
+    return db.insert(
+      'ausentismos',
+      ausentismo.toMap(),
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  Future<List<AusentismoModel>> getAusentismosFecha(String fecha) async {
+    if (kIsWeb) {
+      final baseUrl = await getConfig(DbConstants.cfgUrlApi) ?? ApiConstants.defaultBaseUrl;
+      final response = await http.get(Uri.parse('$baseUrl/api/sync/ausentismos'));
+      if (response.statusCode == 200) {
+        final body = jsonDecode(response.body);
+        if (body['success'] == true) {
+          final data = body['data'] as List;
+          return data
+              .map((item) => AusentismoModel.fromMap(Map<String, dynamic>.from(item)..['sincronizado'] = 1))
+              .where((a) => a.fecha == fecha)
+              .toList();
+        }
+      }
+      return [];
+    }
+
+    final db = await database;
+    final rows = await db.query(
+      'ausentismos',
+      where: 'fecha = ?',
+      whereArgs: [fecha],
+    );
+    return rows.map(AusentismoModel.fromMap).toList();
+  }
+
+  Future<int> deleteAusentismo(String id) async {
+    if (kIsWeb) {
+      final baseUrl = await getConfig(DbConstants.cfgUrlApi) ?? ApiConstants.defaultBaseUrl;
+      final response = await http.delete(
+        Uri.parse('$baseUrl/api/sync/ausentismos/$id'),
+      );
+      return response.statusCode == 200 ? 1 : 0;
+    }
+
+    final db = await database;
+    return db.delete(
+      'ausentismos',
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
+  Future<List<AusentismoModel>> getAusentismosPendientes() async {
+    if (kIsWeb) return [];
+    final db = await database;
+    final rows = await db.query(
+      'ausentismos',
+      where: 'sincronizado = 0',
+    );
+    return rows.map(AusentismoModel.fromMap).toList();
+  }
+
+  Future<int> marcarAusentismoSincronizado(String id) async {
+    if (kIsWeb) return 1;
+    final db = await database;
+    return db.update(
+      'ausentismos',
+      {'sincronizado': 1},
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
+  Future<int> marcarAusentismosSincronizados(List<String> ids) async {
+    if (kIsWeb) return ids.length;
+    if (ids.isEmpty) return 0;
+    final db = await database;
+    final placeholders = ids.map((_) => '?').join(',');
+    return db.rawUpdate(
+      'UPDATE ausentismos SET sincronizado = 1 WHERE id IN ($placeholders)',
+      ids,
+    );
   }
 
   // ─── UTILS ────────────────────────────────────────────────────────────────

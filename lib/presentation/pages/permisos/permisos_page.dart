@@ -326,7 +326,7 @@ class _PermisosPageState extends State<PermisosPage> {
   String _formatDateStr(String dateStr) {
     try {
       final dt = DateTime.parse(dateStr);
-      return DateFormat('dd/MM/yyyy').format(dt);
+      return DateFormat('dd/MM/yyyy hh:mm a').format(dt);
     } catch (_) {
       return dateStr;
     }
@@ -446,23 +446,27 @@ class _PermisosPageState extends State<PermisosPage> {
   Widget _buildTableHeader() {
     return Container(
       decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.4),
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(8)),
+        color: AppColors.primary.withValues(alpha: 0.08),
+        borderRadius: const BorderRadius.only(
+          topLeft: Radius.circular(7),
+          topRight: Radius.circular(7),
+        ),
         border: Border(
-          bottom: BorderSide(
-            color: Theme.of(context).dividerColor.withValues(alpha: 0.6),
-            width: 1.5,
-          ),
+          bottom: BorderSide(color: Colors.grey.shade300, width: 1),
         ),
       ),
-      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       child: const Row(
         children: [
           SizedBox(
             width: 60,
             child: Text(
-              'ESTADO',
-              style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.grey),
+              'Estado',
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 13,
+                color: AppColors.primaryDark,
+              ),
               textAlign: TextAlign.center,
             ),
           ),
@@ -470,30 +474,46 @@ class _PermisosPageState extends State<PermisosPage> {
           Expanded(
             flex: 3,
             child: Text(
-              'TIPO DE PERMISO',
-              style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.grey),
+              'Tipo de Permiso',
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 13,
+                color: AppColors.primaryDark,
+              ),
             ),
           ),
           Expanded(
             flex: 4,
             child: Text(
-              'VIGENCIA AUTORIZADA',
-              style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.grey),
+              'Vigencia Autorizada',
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 13,
+                color: AppColors.primaryDark,
+              ),
             ),
           ),
           Expanded(
             flex: 2,
             child: Text(
-              'SINCRONIZACIÓN',
-              style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.grey),
+              'Sincronización',
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 13,
+                color: AppColors.primaryDark,
+              ),
               textAlign: TextAlign.center,
             ),
           ),
           SizedBox(
             width: 120,
             child: Text(
-              'ACCIONES',
-              style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.grey),
+              'Acciones',
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 13,
+                color: AppColors.primaryDark,
+              ),
               textAlign: TextAlign.center,
             ),
           ),
@@ -505,23 +525,16 @@ class _PermisosPageState extends State<PermisosPage> {
   Widget _buildRow(PermisoModel p, int index) {
     final isEven = index % 2 == 0;
     final color = _getPermisoColor(p.tipo);
+    final rowColor = isEven ? Colors.white : Colors.grey.shade50;
 
     return Container(
       decoration: BoxDecoration(
-        color: isEven
-            ? Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.08)
-            : Colors.transparent,
+        color: rowColor,
         border: Border(
-          bottom: BorderSide(
-            color: Theme.of(context).dividerColor.withValues(alpha: 0.3),
-          ),
-          left: BorderSide(
-            color: color,
-            width: 4,
-          ),
+          bottom: BorderSide(color: Colors.grey.shade200, width: 1),
         ),
       ),
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       child: Row(
         children: [
           // Icon Cell
@@ -581,6 +594,17 @@ class _PermisosPageState extends State<PermisosPage> {
                   'Del ${_formatDateStr(p.fechaInicio)} al ${_formatDateStr(p.fechaFinal)}',
                   style: TextStyle(fontSize: 11, color: Theme.of(context).colorScheme.onSurfaceVariant),
                 ),
+                if (p.observacion != null && p.observacion!.isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    'Obs: ${p.observacion}',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontStyle: FontStyle.italic,
+                      color: Theme.of(context).colorScheme.primary,
+                    ),
+                  ),
+                ],
               ],
             ),
           ),
@@ -699,6 +723,17 @@ class _PermisosPageState extends State<PermisosPage> {
                     'Del ${_formatDateStr(p.fechaInicio)} al ${_formatDateStr(p.fechaFinal)}',
                     style: TextStyle(fontSize: 11, color: Theme.of(context).colorScheme.onSurfaceVariant),
                   ),
+                  if (p.observacion != null && p.observacion!.isNotEmpty) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      'Obs: ${p.observacion}',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontStyle: FontStyle.italic,
+                        color: Theme.of(context).colorScheme.primary,
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -1231,19 +1266,26 @@ class _AddPermisoDialog extends StatefulWidget {
 class _AddPermisoDialogState extends State<_AddPermisoDialog> {
   final _formKey = GlobalKey<FormState>();
   final _db = DatabaseHelper();
+  final _observacionCtrl = TextEditingController();
 
   List<EmpleadoModel> _empleados = [];
   String? _selectedCedula;
   
   String _tipo = 'CITA_MEDICA';
   DateTime _fechaInicio = DateTime.now();
-  DateTime _fechaFinal = DateTime.now().add(const Duration(days: 1));
+  DateTime _fechaFinal = DateTime.now().add(const Duration(hours: 1));
   bool _saving = false;
 
   @override
   void initState() {
     super.initState();
     _loadEmpleados();
+  }
+
+  @override
+  void dispose() {
+    _observacionCtrl.dispose();
+    super.dispose();
   }
 
   Future<void> _loadEmpleados() async {
@@ -1265,24 +1307,39 @@ class _AddPermisoDialogState extends State<_AddPermisoDialog> {
     }
   }
 
-  Future<void> _selectDate(bool esInicio) async {
-    final picked = await showDatePicker(
+  Future<void> _selectDateTime(bool esInicio) async {
+    final initialDateTime = esInicio ? _fechaInicio : _fechaFinal;
+    final pickedDate = await showDatePicker(
       context: context,
-      initialDate: esInicio ? _fechaInicio : _fechaFinal,
+      initialDate: initialDateTime,
       firstDate: DateTime(2020),
       lastDate: DateTime(2035),
     );
-    if (picked != null) {
-      setState(() {
-        if (esInicio) {
-          _fechaInicio = picked;
-          if (_fechaFinal.isBefore(_fechaInicio)) {
-            _fechaFinal = _fechaInicio.add(const Duration(days: 1));
+    if (pickedDate != null) {
+      if (!mounted) return;
+      final pickedTime = await showTimePicker(
+        context: context,
+        initialTime: TimeOfDay.fromDateTime(initialDateTime),
+      );
+      if (pickedTime != null) {
+        setState(() {
+          final combined = DateTime(
+            pickedDate.year,
+            pickedDate.month,
+            pickedDate.day,
+            pickedTime.hour,
+            pickedTime.minute,
+          );
+          if (esInicio) {
+            _fechaInicio = combined;
+            if (_fechaFinal.isBefore(_fechaInicio)) {
+              _fechaFinal = _fechaInicio.add(const Duration(hours: 1));
+            }
+          } else {
+            _fechaFinal = combined;
           }
-        } else {
-          _fechaFinal = picked;
-        }
-      });
+        });
+      }
     }
   }
 
@@ -1297,7 +1354,7 @@ class _AddPermisoDialogState extends State<_AddPermisoDialog> {
 
     if (_fechaFinal.isBefore(_fechaInicio)) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('La fecha final no puede ser anterior a la inicial'), backgroundColor: AppColors.warning),
+        const SnackBar(content: Text('La fecha y hora final no puede ser anterior a la inicial'), backgroundColor: AppColors.warning),
       );
       return;
     }
@@ -1307,10 +1364,11 @@ class _AddPermisoDialogState extends State<_AddPermisoDialog> {
       final permiso = PermisoModel(
         usuarioRegistrador: 'admin',
         cedulaEmpleado: _selectedCedula!,
-        fechaHora: DateTime.now().toIso8601String().substring(0, 19),
+        fechaHora: DateTime.now().toIso8601String().substring(0, 19).replaceAll('T', ' '),
         tipo: _tipo,
-        fechaInicio: DateFormat('yyyy-MM-dd').format(_fechaInicio),
-        fechaFinal: DateFormat('yyyy-MM-dd').format(_fechaFinal),
+        fechaInicio: DateFormat('yyyy-MM-dd HH:mm:ss').format(_fechaInicio),
+        fechaFinal: DateFormat('yyyy-MM-dd HH:mm:ss').format(_fechaFinal),
+        observacion: _observacionCtrl.text.trim(),
         sincronizado: false,
       );
 
@@ -1380,29 +1438,50 @@ class _AddPermisoDialogState extends State<_AddPermisoDialog> {
                   if (val != null) setState(() => _tipo = val);
                 },
               ),
+              const SizedBox(height: 16),
+
+              // Observación
+              TextFormField(
+                controller: _observacionCtrl,
+                decoration: const InputDecoration(
+                  labelText: 'Observación / Detalles',
+                  border: OutlineInputBorder(),
+                  alignLabelWithHint: true,
+                ),
+                maxLines: 3,
+                maxLength: 400,
+                validator: (val) {
+                  if (val == null || val.trim().isEmpty) {
+                    return 'Ingrese una observación para el permiso';
+                  }
+                  return null;
+                },
+              ),
               const SizedBox(height: 20),
 
               // Rango de Fechas
               Text(
-                'Rango de Vigencia',
+                'Vigencia (Fecha y Hora)',
                 style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Theme.of(context).colorScheme.onSurfaceVariant),
               ),
               const SizedBox(height: 8),
-              Row(
+              Column(
                 children: [
-                  Expanded(
+                  SizedBox(
+                    width: double.infinity,
                     child: OutlinedButton.icon(
-                      onPressed: () => _selectDate(true),
-                      icon: const Icon(Icons.date_range, size: 16),
-                      label: Text('Desde: ${DateFormat('dd/MM').format(_fechaInicio)}'),
+                      onPressed: () => _selectDateTime(true),
+                      icon: const Icon(Icons.calendar_month, size: 16),
+                      label: Text('Desde: ${DateFormat('dd/MM/yyyy hh:mm a').format(_fechaInicio)}'),
                     ),
                   ),
-                  const SizedBox(width: 8),
-                  Expanded(
+                  const SizedBox(height: 8),
+                  SizedBox(
+                    width: double.infinity,
                     child: OutlinedButton.icon(
-                      onPressed: () => _selectDate(false),
-                      icon: const Icon(Icons.date_range, size: 16),
-                      label: Text('Hasta: ${DateFormat('dd/MM').format(_fechaFinal)}'),
+                      onPressed: () => _selectDateTime(false),
+                      icon: const Icon(Icons.calendar_month, size: 16),
+                      label: Text('Hasta: ${DateFormat('dd/MM/yyyy hh:mm a').format(_fechaFinal)}'),
                     ),
                   ),
                 ],

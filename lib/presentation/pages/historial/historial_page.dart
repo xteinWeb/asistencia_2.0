@@ -31,9 +31,7 @@ class _HistorialPageState extends State<HistorialPage> {
   List<RegistroModel> _filteredRegistros = [];
   Map<String, EmpleadoModel> _empleadosMap = {};
   
-  // Variables para la agrupación por empleado (Cédula)
-  List<String> _groupedCedulas = [];
-  Map<String, List<RegistroModel>> _groupedRegistros = {};
+
   
   DateTime? _selectedDate;
   String _selectedTipo = 'TODOS';
@@ -44,8 +42,7 @@ class _HistorialPageState extends State<HistorialPage> {
   // Rastrear operaciones de sincronización individual por ID de registro
   final Map<String, bool> _syncingRows = {};
   
-  // Rastrear qué grupos de empleados están expandidos (cerrados por defecto)
-  final Map<String, bool> _expandedGroups = {};
+
 
   @override
   void initState() {
@@ -71,6 +68,7 @@ class _HistorialPageState extends State<HistorialPage> {
 
       // 2. Cargar todos los registros de forma compatible tanto nativo como Web
       final listAll = await _db.getAllRegistros();
+      listAll.sort((a, b) => b.fechaHora.compareTo(a.fechaHora));
 
       setState(() {
         _allRegistros = listAll;
@@ -113,22 +111,8 @@ class _HistorialPageState extends State<HistorialPage> {
       return matchQuery && matchDate && matchTipo && matchSync;
     }).toList();
 
-    // 2. Agrupar la lista filtrada por cédula
-    final groupedCedulas = <String>[];
-    final groupedRegistros = <String, List<RegistroModel>>{};
-
-    for (final reg in filtered) {
-      if (!groupedRegistros.containsKey(reg.cedula)) {
-        groupedCedulas.add(reg.cedula);
-        groupedRegistros[reg.cedula] = [];
-      }
-      groupedRegistros[reg.cedula]!.add(reg);
-    }
-
     setState(() {
       _filteredRegistros = filtered;
-      _groupedCedulas = groupedCedulas;
-      _groupedRegistros = groupedRegistros;
     });
   }
 
@@ -601,61 +585,104 @@ class _HistorialPageState extends State<HistorialPage> {
   Widget _buildTableHeader() {
     return Container(
       decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.4),
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(8)),
+        color: AppColors.primary.withValues(alpha: 0.08),
+        borderRadius: const BorderRadius.only(
+          topLeft: Radius.circular(7),
+          topRight: Radius.circular(7),
+        ),
         border: Border(
-          bottom: BorderSide(
-            color: Theme.of(context).dividerColor.withValues(alpha: 0.6),
-            width: 1.5,
-          ),
+          bottom: BorderSide(color: Colors.grey.shade300, width: 1),
         ),
       ),
-      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       child: const Row(
         children: [
-          SizedBox(
-            width: 60,
-            child: Text(
-              'EVENTO',
-              style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.grey),
-              textAlign: TextAlign.center,
-            ),
-          ),
-          SizedBox(width: 16),
-          Expanded(
-            flex: 3,
-            child: Text(
-              'FECHA Y HORA',
-              style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.grey),
-            ),
-          ),
           Expanded(
             flex: 2,
             child: Text(
-              'TIPO',
-              style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.grey),
+              'Cédula',
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 13,
+                color: AppColors.primaryDark,
+              ),
             ),
           ),
           Expanded(
             flex: 3,
             child: Text(
-              'DISPOSITIVO',
-              style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.grey),
+              'Colaborador',
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 13,
+                color: AppColors.primaryDark,
+              ),
             ),
           ),
           Expanded(
             flex: 2,
             child: Text(
-              'ESTADO',
-              style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.grey),
-              textAlign: TextAlign.center,
+              'Evento',
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 13,
+                color: AppColors.primaryDark,
+              ),
             ),
           ),
-          SizedBox(
-            width: 120,
+          Expanded(
+            flex: 3,
             child: Text(
-              'ACCIONES',
-              style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.grey),
+              'Fecha y Hora',
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 13,
+                color: AppColors.primaryDark,
+              ),
+            ),
+          ),
+          Expanded(
+            flex: 2,
+            child: Text(
+              'Tipo',
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 13,
+                color: AppColors.primaryDark,
+              ),
+            ),
+          ),
+          Expanded(
+            flex: 2,
+            child: Text(
+              'Dispositivo',
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 13,
+                color: AppColors.primaryDark,
+              ),
+            ),
+          ),
+          Expanded(
+            flex: 2,
+            child: Text(
+              'Sincronización',
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 13,
+                color: AppColors.primaryDark,
+              ),
+            ),
+          ),
+          Expanded(
+            flex: 2,
+            child: Text(
+              'Acciones',
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 13,
+                color: AppColors.primaryDark,
+              ),
               textAlign: TextAlign.center,
             ),
           ),
@@ -665,252 +692,175 @@ class _HistorialPageState extends State<HistorialPage> {
   }
 
   Widget _buildRow(RegistroModel reg, int index) {
-    final isEven = index % 2 == 0;
+    final empleado = _empleadosMap[reg.cedula];
     final typeColor = _getTipoColor(reg.tipo);
+    final isEven = index % 2 == 0;
+    final rowColor = isEven ? Colors.white : Colors.grey.shade50;
 
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: () => _showDetailsDialog(reg),
-        child: Container(
-          decoration: BoxDecoration(
-            color: isEven
-                ? Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.08)
-                : Colors.transparent,
-            border: Border(
-              bottom: BorderSide(
-                color: Theme.of(context).dividerColor.withValues(alpha: 0.3),
-              ),
-              left: BorderSide(
-                color: typeColor,
-                width: 4,
-              ),
+    final isEntrada = reg.evento == AppConstants.eventoEntrada;
+    final eventoColor = isEntrada ? AppColors.success : AppColors.error;
+    final eventoBg = isEntrada ? AppColors.successLight : AppColors.errorLight;
+    final eventoText = isEntrada ? 'ENTRADA' : 'SALIDA';
+    final eventoIcon = isEntrada ? Icons.login_rounded : Icons.logout_rounded;
+
+    final colorSync = reg.sincronizado ? AppColors.success : AppColors.warning;
+    final bgSync = reg.sincronizado ? AppColors.successLight : AppColors.warningLight;
+    final textSync = reg.sincronizado ? 'ENVIADO' : 'PENDIENTE';
+    final iconSync = reg.sincronizado ? Icons.cloud_done_rounded : Icons.cloud_off_rounded;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: rowColor,
+        border: Border(
+          bottom: BorderSide(color: Colors.grey.shade200, width: 1),
+        ),
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      child: Row(
+        children: [
+          // Cédula
+          Expanded(
+            flex: 2,
+            child: Text(
+              reg.cedula,
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
             ),
           ),
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-          child: Row(
-            children: [
-              // Event Icon Cell
-              SizedBox(
-                width: 60,
-                child: Center(
-                  child: Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: typeColor.withValues(alpha: 0.1),
-                      shape: BoxShape.circle,
-                    ),
-                    child: Icon(
-                      reg.evento == AppConstants.eventoEntrada
-                          ? Icons.login_rounded
-                          : Icons.logout_rounded,
-                      color: typeColor,
-                      size: 18,
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 16),
 
-              // Date Cell
-              Expanded(
-                flex: 3,
-                child: Text(
-                  _formatDateTime(reg.fechaHora),
-                  style: TextStyle(
-                    fontSize: 13,
-                    color: Theme.of(context).colorScheme.onSurface,
-                  ),
-                ),
-              ),
+          // Colaborador
+          Expanded(
+            flex: 3,
+            child: Text(
+              empleado?.nombre ?? 'Empleado Desconocido',
+              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
 
-              // Type Cell
-              Expanded(
-                flex: 2,
+          // Evento
+          Expanded(
+            flex: 2,
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: eventoBg,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: eventoColor.withValues(alpha: 0.3)),
+                ),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: typeColor.withValues(alpha: 0.12),
-                        borderRadius: BorderRadius.circular(6),
-                        border: Border.all(color: typeColor.withValues(alpha: 0.3)),
-                      ),
-                      child: Text(
-                        reg.tipo.toUpperCase(),
-                        style: TextStyle(
-                          fontSize: 9,
-                          fontWeight: FontWeight.bold,
-                          color: typeColor,
-                        ),
+                    Icon(eventoIcon, color: eventoColor, size: 12),
+                    const SizedBox(width: 4),
+                    Text(
+                      eventoText,
+                      style: TextStyle(
+                        color: eventoColor,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 9,
                       ),
                     ),
                   ],
                 ),
               ),
-
-              // Branch/Device Cell
-              Expanded(
-                flex: 3,
-                child: Text(
-                  reg.unidadNegocio,
-                  style: TextStyle(
-                    fontSize: 13,
-                    color: Theme.of(context).colorScheme.onSurfaceVariant,
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-
-              // Sync State Badge Cell
-              Expanded(
-                flex: 2,
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: reg.sincronizado
-                            ? AppColors.successLight
-                            : Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.4),
-                        borderRadius: BorderRadius.circular(20),
-                        border: Border.all(
-                          color: reg.sincronizado
-                              ? AppColors.success.withValues(alpha: 0.3)
-                              : Theme.of(context).dividerColor.withValues(alpha: 0.5),
-                        ),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            reg.sincronizado ? Icons.cloud_done_rounded : Icons.cloud_off_rounded,
-                            color: reg.sincronizado ? AppColors.success : AppColors.textDisabled,
-                            size: 13,
-                          ),
-                          const SizedBox(width: 4),
-                          Text(
-                            reg.sincronizado ? 'Enviado' : 'Pendiente',
-                            style: TextStyle(
-                              fontSize: 9,
-                              fontWeight: FontWeight.w600,
-                              color: reg.sincronizado ? AppColors.success : AppColors.textSecondary,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-
-              // Actions Cell
-              SizedBox(
-                width: 120,
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    IconButton(
-                      icon: const Icon(Icons.info_outline_rounded, color: AppColors.textSecondary, size: 20),
-                      tooltip: 'Ver detalles',
-                      onPressed: () => _showDetailsDialog(reg),
-                    ),
-                    if (!reg.sincronizado) ...[
-                      _syncingRows[reg.id] == true
-                          ? const SizedBox(
-                              width: 20,
-                              height: 20,
-                              child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.primary),
-                            )
-                          : IconButton(
-                              icon: const Icon(Icons.cloud_upload_rounded, color: AppColors.primary, size: 20),
-                              tooltip: 'Sincronizar ahora',
-                              onPressed: () => _syncSingleRegistro(reg),
-                            ),
-                    ] else ...[
-                      const Padding(
-                        padding: EdgeInsets.symmetric(horizontal: 12),
-                        child: Icon(Icons.check_circle_rounded, color: AppColors.success, size: 20),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-            ],
+            ),
           ),
-        ),
-      ),
-    );
-  }
 
-  Widget _buildMobileRow(RegistroModel reg) {
-    final typeColor = _getTipoColor(reg.tipo);
+          // Fecha y Hora
+          Expanded(
+            flex: 3,
+            child: Text(
+              _formatDateTime(reg.fechaHora),
+              style: const TextStyle(fontSize: 13),
+            ),
+          ),
 
-    return Card(
-      margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 2),
-      elevation: 0.5,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(8),
-        side: BorderSide(
-          color: Theme.of(context).dividerColor.withValues(alpha: 0.2),
-        ),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-        child: Row(
-          children: [
-            // Event Icon
-            Container(
-              padding: const EdgeInsets.all(6),
-              decoration: BoxDecoration(
-                color: typeColor.withValues(alpha: 0.1),
-                shape: BoxShape.circle,
-              ),
-              child: Icon(
-                reg.evento == AppConstants.eventoEntrada
-                    ? Icons.login_rounded
-                    : Icons.logout_rounded,
-                color: typeColor,
-                size: 16,
+          // Tipo
+          Expanded(
+            flex: 2,
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: typeColor.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(color: typeColor.withValues(alpha: 0.3)),
+                ),
+                child: Text(
+                  reg.tipo.toUpperCase(),
+                  style: TextStyle(
+                    fontSize: 9,
+                    fontWeight: FontWeight.bold,
+                    color: typeColor,
+                  ),
+                ),
               ),
             ),
-            const SizedBox(width: 12),
-            
-            // Date & Type Info
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    _formatDateTime(reg.fechaHora),
-                    style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    'Tipo: ${reg.tipo} • Disp: ${reg.unidadNegocio}',
-                    style: TextStyle(fontSize: 11, color: Theme.of(context).colorScheme.onSurfaceVariant),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ],
+          ),
+
+          // Dispositivo
+          Expanded(
+            flex: 2,
+            child: Text(
+              reg.unidadNegocio,
+              style: const TextStyle(fontSize: 13, color: Colors.grey),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+
+          // Sincronización
+          Expanded(
+            flex: 2,
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: bgSync,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: colorSync.withValues(alpha: 0.3)),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(iconSync, color: colorSync, size: 12),
+                    const SizedBox(width: 4),
+                    Text(
+                      textSync,
+                      style: TextStyle(
+                        color: colorSync,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 9,
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
-            const SizedBox(width: 8),
+          ),
 
-            // Sync status & actions
-            Row(
-              mainAxisSize: MainAxisSize.min,
+          // Acciones
+          Expanded(
+            flex: 2,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
               children: [
+                // Ver Detalles
                 IconButton(
-                  icon: const Icon(Icons.info_outline_rounded, size: 18, color: AppColors.textSecondary),
-                  onPressed: () => _showDetailsDialog(reg),
+                  icon: const Icon(Icons.info_outline_rounded, color: AppColors.textSecondary, size: 18),
+                  tooltip: 'Ver Detalles',
                   padding: EdgeInsets.zero,
                   constraints: const BoxConstraints(),
+                  onPressed: () => _showDetailsDialog(reg),
                 ),
                 const SizedBox(width: 8),
+
+                // Sincronizar individual (Solo si no está sincronizado)
                 if (!reg.sincronizado) ...[
                   _syncingRows[reg.id] == true
                       ? const SizedBox(
@@ -920,286 +870,56 @@ class _HistorialPageState extends State<HistorialPage> {
                         )
                       : IconButton(
                           icon: const Icon(Icons.cloud_upload_rounded, color: AppColors.primary, size: 18),
-                          onPressed: () => _syncSingleRegistro(reg),
+                          tooltip: 'Sincronizar ahora',
                           padding: EdgeInsets.zero,
                           constraints: const BoxConstraints(),
+                          onPressed: () => _syncSingleRegistro(reg),
                         ),
                 ] else ...[
                   const Icon(Icons.check_circle_rounded, color: AppColors.success, size: 18),
                 ],
               ],
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
 
   Widget _buildListArea(bool isWide) {
-    if (_groupedCedulas.isEmpty) {
+    if (_filteredRegistros.isEmpty) {
       return _buildEmptyState();
     }
 
-    if (isWide) {
-      return ListView.builder(
-        itemCount: _groupedCedulas.length,
-        itemBuilder: (context, index) {
-          final cedula = _groupedCedulas[index];
-          final empleado = _empleadosMap[cedula];
-          final registros = _groupedRegistros[cedula] ?? [];
-          final syncedCount = registros.where((r) => r.sincronizado).length;
-          final pendingCount = registros.length - syncedCount;
-          final isExpanded = _expandedGroups[cedula] ?? false;
-
-          return Card(
-            margin: const EdgeInsets.only(bottom: 16),
-            elevation: 2,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-              side: BorderSide(
-                color: Theme.of(context).dividerColor.withValues(alpha: 0.4),
-              ),
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 4),
+      decoration: BoxDecoration(
+        color: Theme.of(context).cardColor,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.grey.shade300, width: 1),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.03),
+            blurRadius: 6,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          _buildTableHeader(),
+          Expanded(
+            child: ListView.builder(
+              itemCount: _filteredRegistros.length,
+              itemBuilder: (context, index) {
+                final reg = _filteredRegistros[index];
+                return _buildRow(reg, index);
+              },
             ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                // Cabecera del Empleado (Grupo Clickeable para Expandir/Contraer)
-                InkWell(
-                  onTap: () {
-                    setState(() {
-                      _expandedGroups[cedula] = !isExpanded;
-                    });
-                  },
-                  borderRadius: isExpanded
-                      ? const BorderRadius.vertical(top: Radius.circular(12))
-                      : BorderRadius.circular(12),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-                    decoration: BoxDecoration(
-                      color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.25),
-                      borderRadius: isExpanded
-                          ? const BorderRadius.vertical(top: Radius.circular(12))
-                          : BorderRadius.circular(12),
-                    ),
-                    child: Row(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.all(8),
-                          decoration: BoxDecoration(
-                            color: AppColors.primary.withValues(alpha: 0.1),
-                            shape: BoxShape.circle,
-                          ),
-                          child: const Icon(Icons.person_rounded, color: AppColors.primary, size: 22),
-                        ),
-                        const SizedBox(width: 16),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                empleado?.nombre ?? 'Empleado Desconocido',
-                                style: const TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                              const SizedBox(height: 2),
-                              Text(
-                                'Cédula: $cedula',
-                                style: TextStyle(
-                                  fontSize: 13,
-                                  color: Theme.of(context).colorScheme.onSurfaceVariant,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        // Badges de resumen
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                          decoration: BoxDecoration(
-                            color: AppColors.primary.withValues(alpha: 0.1),
-                            borderRadius: BorderRadius.circular(20),
-                          ),
-                          child: Text(
-                            '${registros.length} Marcaciones',
-                            style: const TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.bold,
-                              color: AppColors.primary,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        if (pendingCount > 0)
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                            decoration: BoxDecoration(
-                              color: AppColors.warning.withValues(alpha: 0.1),
-                              borderRadius: BorderRadius.circular(20),
-                            ),
-                            child: Text(
-                              '$pendingCount Pendientes',
-                              style: const TextStyle(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.bold,
-                                  color: AppColors.warning,
-                              ),
-                            ),
-                          )
-                        else
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                            decoration: BoxDecoration(
-                              color: AppColors.success.withValues(alpha: 0.1),
-                              borderRadius: BorderRadius.circular(20),
-                            ),
-                            child: const Text(
-                              'Sincronizado',
-                              style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.bold,
-                                color: AppColors.success,
-                              ),
-                            ),
-                          ),
-                        const SizedBox(width: 16),
-                        Icon(
-                          isExpanded
-                              ? Icons.keyboard_arrow_up_rounded
-                              : Icons.keyboard_arrow_down_rounded,
-                          color: AppColors.primary,
-                          size: 24,
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                
-                // Tabla de asistencia (Se muestra solo si el grupo está expandido)
-                if (isExpanded) ...[
-                  _buildTableHeader(),
-                  ListView.builder(
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(),
-                    itemCount: registros.length,
-                    itemBuilder: (context, rIndex) {
-                      final reg = registros[rIndex];
-                      return _buildRow(reg, rIndex);
-                    },
-                  ),
-                ],
-              ],
-            ),
-          );
-        },
-      );
-    } else {
-      // Mobile grouping (Collapsible cards via custom Tap actions, closed by default)
-      return ListView.builder(
-        padding: const EdgeInsets.symmetric(vertical: 4),
-        itemCount: _groupedCedulas.length,
-        itemBuilder: (context, index) {
-          final cedula = _groupedCedulas[index];
-          final empleado = _empleadosMap[cedula];
-          final registros = _groupedRegistros[cedula] ?? [];
-          final pendingCount = registros.where((r) => !r.sincronizado).length;
-          final isExpanded = _expandedGroups[cedula] ?? false;
-
-          return Card(
-            margin: const EdgeInsets.symmetric(vertical: 6, horizontal: 2),
-            elevation: 1.5,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-              side: BorderSide(
-                color: Theme.of(context).dividerColor.withValues(alpha: 0.3),
-              ),
-            ),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(12),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  // Cabecera Móvil Clickeable
-                  InkWell(
-                    onTap: () {
-                      setState(() {
-                        _expandedGroups[cedula] = !isExpanded;
-                      });
-                    },
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                      child: Row(
-                        children: [
-                          CircleAvatar(
-                            backgroundColor: AppColors.primary.withValues(alpha: 0.1),
-                            child: const Icon(Icons.person_rounded, color: AppColors.primary),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  empleado?.nombre ?? 'Empleado Desconocido',
-                                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
-                                ),
-                                const SizedBox(height: 2),
-                                Text(
-                                  'Cédula: $cedula • ${registros.length} marcaciones',
-                                  style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant),
-                                ),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          if (pendingCount > 0)
-                            Container(
-                              padding: const EdgeInsets.all(6),
-                              decoration: BoxDecoration(
-                                color: AppColors.warning.withValues(alpha: 0.15),
-                                shape: BoxShape.circle,
-                              ),
-                              child: const Icon(Icons.cloud_off_rounded, color: AppColors.warning, size: 16),
-                            )
-                          else
-                            Container(
-                              padding: const EdgeInsets.all(6),
-                              decoration: BoxDecoration(
-                                color: AppColors.success.withValues(alpha: 0.15),
-                                shape: BoxShape.circle,
-                              ),
-                              child: const Icon(Icons.cloud_done_rounded, color: AppColors.success, size: 16),
-                            ),
-                          const SizedBox(width: 8),
-                          Icon(
-                            isExpanded
-                                ? Icons.keyboard_arrow_up_rounded
-                                : Icons.keyboard_arrow_down_rounded,
-                            color: AppColors.primary,
-                            size: 20,
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  
-                  // Listado Móvil Desplegado
-                  if (isExpanded)
-                    Container(
-                      color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.15),
-                      padding: const EdgeInsets.all(8),
-                      child: Column(
-                        children: registros.map((reg) => _buildMobileRow(reg)).toList(),
-                      ),
-                    ),
-                ],
-              ),
-            ),
-          );
-        },
-      );
-    }
+          ),
+        ],
+      ),
+    );
   }
 
   Widget _buildEmptyState() {

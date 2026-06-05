@@ -12,6 +12,9 @@ class EmpleadoModel extends Empleado {
     super.fechaIniContrato,
     super.fechaFinContrato,
     super.estado = 'ACTIVO',
+    super.sedePrincipal,
+    super.idSeccion,
+    super.tipo,
     this.sincronizado = false,
   });
 
@@ -32,20 +35,28 @@ class EmpleadoModel extends Empleado {
       fechaIniContrato: map['fecha_ini_contrato'] as String?,
       fechaFinContrato: map['fecha_fin_contrato'] as String?,
       estado: map['estado'] as String? ?? 'ACTIVO',
-      sincronizado: (map['sincronizado'] as int? ?? 0) == 1,
+      sedePrincipal: map['sede_principal'] as String?,
+      idSeccion: map['id_seccion'] as String?,
+      tipo: map['tipo'] as String?,
+      sincronizado: map['sincronizado'] == 1 || map['sincronizado'] == true,
     );
   }
 
   Map<String, dynamic> toMap() => {
-        'cedula': cedula,
-        'nombre': nombre,
-        'mapa_vector_foto': jsonEncode(mapaVectorFoto),
-        'horario_id': horarioId,
-        'fecha_ini_contrato': fechaIniContrato,
-        'fecha_fin_contrato': fechaFinContrato,
-        'estado': estado,
-        'sincronizado': sincronizado ? 1 : 0,
-      };
+    'cedula': cedula,
+    'nombre': nombre,
+    'mapa_vector_foto': mapaVectorFoto.isEmpty
+        ? null
+        : jsonEncode(mapaVectorFoto),
+    'horario_id': horarioId,
+    'fecha_ini_contrato': fechaIniContrato,
+    'fecha_fin_contrato': fechaFinContrato,
+    'estado': estado,
+    'sede_principal': sedePrincipal,
+    'id_seccion': idSeccion,
+    'tipo': tipo,
+    'sincronizado': sincronizado ? 1 : 0,
+  };
 
   factory EmpleadoModel.fromJson(Map<String, dynamic> json) =>
       EmpleadoModel.fromMap(json);
@@ -60,16 +71,21 @@ class EmpleadoModel extends Empleado {
     String? fechaIniContrato,
     String? fechaFinContrato,
     String? estado,
+    String? sedePrincipal,
+    String? idSeccion,
+    String? tipo,
     bool? sincronizado,
-  }) =>
-      EmpleadoModel(
-        cedula: cedula ?? this.cedula,
-        nombre: nombre ?? this.nombre,
-        mapaVectorFoto: mapaVectorFoto ?? this.mapaVectorFoto,
-        horarioId: horarioId ?? this.horarioId,
-        fechaIniContrato: fechaIniContrato ?? this.fechaIniContrato,
-        fechaFinContrato: fechaFinContrato ?? this.fechaFinContrato,
-        estado: estado ?? this.estado,
-        sincronizado: sincronizado ?? this.sincronizado,
-      );
+  }) => EmpleadoModel(
+    cedula: cedula ?? this.cedula,
+    nombre: nombre ?? this.nombre,
+    mapaVectorFoto: mapaVectorFoto ?? this.mapaVectorFoto,
+    horarioId: horarioId ?? this.horarioId,
+    fechaIniContrato: fechaIniContrato ?? this.fechaIniContrato,
+    fechaFinContrato: fechaFinContrato ?? this.fechaFinContrato,
+    estado: estado ?? this.estado,
+    sedePrincipal: sedePrincipal ?? this.sedePrincipal,
+    idSeccion: idSeccion ?? this.idSeccion,
+    tipo: tipo ?? this.tipo,
+    sincronizado: sincronizado ?? this.sincronizado,
+  );
 }

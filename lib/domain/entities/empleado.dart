@@ -6,6 +6,9 @@ class Empleado {
   final String? fechaIniContrato;
   final String? fechaFinContrato;
   final String estado; // ACTIVO / INACTIVO
+  final String? sedePrincipal;
+  final String? idSeccion;
+  final String? tipo; // OPERATIVO / ADMINISTRATIVO
 
   const Empleado({
     required this.cedula,
@@ -15,9 +18,12 @@ class Empleado {
     this.fechaIniContrato,
     this.fechaFinContrato,
     this.estado = 'ACTIVO',
+    this.sedePrincipal,
+    this.idSeccion,
+    this.tipo,
   });
 
   @override
-  String toString() => 'Empleado(cedula: $cedula, nombre: $nombre, estado: $estado)';
+  String toString() => 'Empleado(cedula: $cedula, nombre: $nombre, estado: $estado, sedePrincipal: $sedePrincipal, idSeccion: $idSeccion, tipo: $tipo)';
 }
 

@@ -1,8 +1,10 @@
 import 'dart:convert';
-import 'dart:io';
 import 'dart:math';
 import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
+import 'package:camera/camera.dart' show XFile;
+
+import 'package:image/image.dart' as img;
 
 import '../data/datasources/local/database_helper.dart';
 import '../core/constants/api_constants.dart';
@@ -26,17 +28,29 @@ class FaceRecognitionService {
         ApiConstants.defaultBaseUrl;
 
     final uri = Uri.parse('$baseUrl${ApiConstants.nuevoEmpleado}');
-    final file = File(imagePath);
+    
+    // Read bytes in a cross-platform way using XFile
+    final xfile = XFile(imagePath);
+    final bytes = await xfile.readAsBytes();
 
-    if (!file.existsSync()) {
-      throw Exception('Archivo de imagen no encontrado: $imagePath');
+    List<int> uploadBytes = bytes;
+    try {
+      img.Image? originalImage = img.decodeImage(bytes);
+      if (originalImage != null) {
+        final orientedImage = img.bakeOrientation(originalImage);
+        uploadBytes = img.encodeJpg(orientedImage, quality: 90);
+        print('=== DIAGNOSTICO: Imagen rotada segun EXIF en memoria ===');
+      }
+    } catch (rotError) {
+      print('=== ADVERTENCIA: Error al rotar la imagen segun EXIF: $rotError ===');
     }
 
     final request = http.MultipartRequest('POST', uri);
     request.files.add(
-      await http.MultipartFile.fromPath(
+      http.MultipartFile.fromBytes(
         'face',
-        imagePath,
+        uploadBytes,
+        filename: 'face.jpg',
         contentType: MediaType('image', 'jpeg'),
       ),
     );

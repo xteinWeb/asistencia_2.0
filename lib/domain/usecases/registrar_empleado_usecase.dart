@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import '../../data/datasources/local/database_helper.dart';
 import '../../data/models/empleado_model.dart';
 import '../../services/face_recognition_service.dart';
@@ -26,6 +27,9 @@ class RegistrarEmpleadoUseCase {
     String? horarioId,
     String? fechaIniContrato,
     String? fechaFinContrato,
+    String? sedePrincipal,
+    String? idSeccion,
+    String? tipo,
   }) async {
     // Verificar conexión
     final connected = await _connectivity.isConnected();
@@ -35,7 +39,7 @@ class RegistrarEmpleadoUseCase {
     }
 
     // Verificar que el archivo existe
-    if (!File(imagePath).existsSync()) {
+    if (!kIsWeb && !File(imagePath).existsSync()) {
       throw Exception('Archivo de imagen no encontrado.');
     }
 
@@ -53,6 +57,9 @@ class RegistrarEmpleadoUseCase {
       horarioId: horarioId,
       fechaIniContrato: fechaIniContrato,
       fechaFinContrato: fechaFinContrato,
+      sedePrincipal: sedePrincipal,
+      idSeccion: idSeccion,
+      tipo: tipo,
     );
 
     // Guardar en SQLite local
