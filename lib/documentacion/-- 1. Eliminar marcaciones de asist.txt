@@ -1,0 +1,39 @@
+-- 1. Eliminar marcaciones de asistencia
+DELETE FROM registros_asistencia;
+-- 2. Eliminar permisos autorizados
+DELETE FROM permisos_asistencia;
+-- 3. Eliminar novedades/ausentismos
+DELETE FROM ausentismos;
+-- 4. Eliminar colaboradores enrolados
+DELETE FROM empleados_asistencia;
+
+--select * from horarios_asistencia
+select * from  usuarios_asistencia
+select * from  empleados_asistencia
+select * from  registros_asistencia
+select * from  permisos_asistencia
+
+
+select * from ausentismos
+select * from  empleados_asistencia
+select * from empleados_secciones
+select * from itm_empleados_secciones
+
+select * from usuarios
+
+select * from horarios_asistencia
+select * from itm_horarios
+select * from horarios
+
+-- 4. Eliminar colaboradores enrolados
+DELETE FROM registros_asistencia where evento = 'SALIDA' and tipo = 'SALIDA';
+
+
+
+SELECT VALOR1, VALOR2 FROM ITM_DOMINIOS WHERE ID_DOMINIO = 'AUSENCIAS'
+
+SELECT * FROM tipo_ausencia
+
+ INSERT INTO usuarios_asistencia (usuario, nombre, contrasena, rol, estado, unidad_negocio)
+                VALUES ('galapa', 'Usuario Galapa', 'galapa2025', 'OPERADOR', 'ACTIVO', 'pl03')
+
