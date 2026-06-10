@@ -25,23 +25,23 @@ class PermisosPage extends StatefulWidget {
 class _PermisosPageState extends State<PermisosPage> {
   final _searchCtrl = TextEditingController();
   final _db = DatabaseHelper();
-  
+
   List<PermisoModel> _allPermisos = [];
   List<PermisoModel> _filteredPermisos = [];
   Map<String, EmpleadoModel> _empleadosMap = {};
-  
+
   // Variables para la agrupación por empleado (Cédula)
   List<String> _groupedCedulas = [];
   Map<String, List<PermisoModel>> _groupedPermisos = {};
-  
+
   String _selectedTipo = 'TODOS';
   String _selectedSync = 'TODOS';
   bool _loading = true;
   bool _syncing = false;
-  
+
   // Rastrear qué grupos de empleados están expandidos (cerrados por defecto)
   final Map<String, bool> _expandedGroups = {};
-  
+
   // Rastrear operaciones de sincronización individual por ID de permiso
   final Map<String, bool> _syncingPermisos = {};
 
@@ -63,9 +63,7 @@ class _PermisosPageState extends State<PermisosPage> {
     try {
       // 1. Cargar empleados para mapear nombres
       final empleados = await _db.getAllEmpleados();
-      _empleadosMap = {
-        for (var e in empleados) e.cedula: e
-      };
+      _empleadosMap = {for (var e in empleados) e.cedula: e};
 
       // 2. Cargar todos los permisos de forma compatible tanto nativo como Web
       final list = await _db.getAllPermisos();
@@ -90,18 +88,20 @@ class _PermisosPageState extends State<PermisosPage> {
 
   void _onSearchChanged() {
     final query = _searchCtrl.text.toLowerCase().trim();
-    
+
     // 1. Filtrar registros planos
     final filtered = _allPermisos.where((p) {
       final empleado = _empleadosMap[p.cedulaEmpleado];
-      final matchQuery = query.isEmpty ||
+      final matchQuery =
+          query.isEmpty ||
           p.cedulaEmpleado.toLowerCase().contains(query) ||
           (empleado != null && empleado.nombre.toLowerCase().contains(query));
 
-      final matchTipo = _selectedTipo == 'TODOS' ||
-          p.tipo.toUpperCase() == _selectedTipo;
+      final matchTipo =
+          _selectedTipo == 'TODOS' || p.tipo.toUpperCase() == _selectedTipo;
 
-      final matchSync = _selectedSync == 'TODOS' ||
+      final matchSync =
+          _selectedSync == 'TODOS' ||
           (_selectedSync == 'ENVIADO' && p.sincronizado) ||
           (_selectedSync == 'PENDIENTE' && !p.sincronizado);
 
@@ -144,14 +144,18 @@ class _PermisosPageState extends State<PermisosPage> {
         if (result.hasErrors) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('Sincronización finalizada con errores: ${result.errors.first}'),
+              content: Text(
+                'Sincronización finalizada con errores: ${result.errors.first}',
+              ),
               backgroundColor: AppColors.warning,
             ),
           );
         } else {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('¡Éxito! Sincronizados ${result.registros} registros y ${result.permisos} permisos.'),
+              content: Text(
+                '¡Éxito! Sincronizados ${result.registros} registros y ${result.permisos} permisos.',
+              ),
               backgroundColor: AppColors.success,
             ),
           );
@@ -185,22 +189,24 @@ class _PermisosPageState extends State<PermisosPage> {
         throw Exception('Sin conexión a internet');
       }
 
-      final baseUrl = await _db.getConfig(DbConstants.cfgUrlApi) ?? ApiConstants.defaultBaseUrl;
+      final baseUrl =
+          await _db.getConfig(DbConstants.cfgUrlApi) ??
+          ApiConstants.defaultBaseUrl;
       final uri = Uri.parse('$baseUrl${ApiConstants.syncPermisos}');
       final body = jsonEncode([p.toMap()]);
 
-      final response = await http.post(
-        uri,
-        headers: {'Content-Type': 'application/json'},
-        body: body,
-      ).timeout(const Duration(seconds: 10));
+      final response = await http
+          .post(uri, headers: {'Content-Type': 'application/json'}, body: body)
+          .timeout(const Duration(seconds: 10));
 
       if (response.statusCode == 200 || response.statusCode == 201) {
         await _db.marcarPermisoSincronizado(p.id!);
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-              content: Text('Permiso sincronizado exitosamente con el servidor central.'),
+              content: Text(
+                'Permiso sincronizado exitosamente con el servidor central.',
+              ),
               backgroundColor: AppColors.success,
             ),
           );
@@ -251,10 +257,7 @@ class _PermisosPageState extends State<PermisosPage> {
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.surface,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: color.withValues(alpha: 0.15),
-          width: 1.5,
-        ),
+        border: Border.all(color: color.withValues(alpha: 0.15), width: 1.5),
         boxShadow: [
           BoxShadow(
             color: color.withValues(alpha: 0.05),
@@ -348,10 +351,11 @@ class _PermisosPageState extends State<PermisosPage> {
                 },
               )
             : null,
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(10),
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 16,
+          vertical: 12,
         ),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       ),
       onChanged: (_) => _onSearchChanged(),
     );
@@ -362,15 +366,15 @@ class _PermisosPageState extends State<PermisosPage> {
       initialValue: _selectedTipo,
       decoration: InputDecoration(
         labelText: 'Tipo de Permiso',
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(10),
-        ),
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
         contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       ),
       style: TextStyle(
         color: Theme.of(context).colorScheme.onSurface,
         fontSize: 14,
-        fontWeight: _selectedTipo != 'TODOS' ? FontWeight.bold : FontWeight.normal,
+        fontWeight: _selectedTipo != 'TODOS'
+            ? FontWeight.bold
+            : FontWeight.normal,
       ),
       onChanged: (String? newValue) {
         if (newValue != null) {
@@ -384,7 +388,10 @@ class _PermisosPageState extends State<PermisosPage> {
         DropdownMenuItem(value: 'PERSONAL', child: Text('Asunto Personal')),
         DropdownMenuItem(value: 'LABORAL', child: Text('Comisión Laboral')),
         DropdownMenuItem(value: 'TRASLADO', child: Text('Traslado de Sede')),
-        DropdownMenuItem(value: 'FIN_CONTRATO', child: Text('Término de Contrato')),
+        DropdownMenuItem(
+          value: 'FIN_CONTRATO',
+          child: Text('Término de Contrato'),
+        ),
       ],
     );
   }
@@ -394,15 +401,15 @@ class _PermisosPageState extends State<PermisosPage> {
       initialValue: _selectedSync,
       decoration: InputDecoration(
         labelText: 'Estado Sincronización',
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(10),
-        ),
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
         contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       ),
       style: TextStyle(
         color: Theme.of(context).colorScheme.onSurface,
         fontSize: 14,
-        fontWeight: _selectedSync != 'TODOS' ? FontWeight.bold : FontWeight.normal,
+        fontWeight: _selectedSync != 'TODOS'
+            ? FontWeight.bold
+            : FontWeight.normal,
       ),
       onChanged: (String? newValue) {
         if (newValue != null) {
@@ -436,9 +443,7 @@ class _PermisosPageState extends State<PermisosPage> {
       style: OutlinedButton.styleFrom(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
         side: const BorderSide(color: AppColors.error, width: 1.5),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(10),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
       ),
     );
   }
@@ -547,7 +552,11 @@ class _PermisosPageState extends State<PermisosPage> {
                   color: color.withValues(alpha: 0.1),
                   shape: BoxShape.circle,
                 ),
-                child: Icon(Icons.assignment_turned_in_rounded, color: color, size: 18),
+                child: Icon(
+                  Icons.assignment_turned_in_rounded,
+                  color: color,
+                  size: 18,
+                ),
               ),
             ),
           ),
@@ -560,7 +569,10 @@ class _PermisosPageState extends State<PermisosPage> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
                   decoration: BoxDecoration(
                     color: color.withValues(alpha: 0.12),
                     borderRadius: BorderRadius.circular(6),
@@ -587,12 +599,18 @@ class _PermisosPageState extends State<PermisosPage> {
               children: [
                 Text(
                   'Vence: ${_formatDateStr(p.fechaFinal)}',
-                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
                 const SizedBox(height: 2),
                 Text(
                   'Del ${_formatDateStr(p.fechaInicio)} al ${_formatDateStr(p.fechaFinal)}',
-                  style: TextStyle(fontSize: 11, color: Theme.of(context).colorScheme.onSurfaceVariant),
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
                 ),
                 if (p.observacion != null && p.observacion!.isNotEmpty) ...[
                   const SizedBox(height: 4),
@@ -616,24 +634,34 @@ class _PermisosPageState extends State<PermisosPage> {
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
                   decoration: BoxDecoration(
                     color: p.sincronizado
                         ? AppColors.successLight
-                        : Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.4),
+                        : Theme.of(context).colorScheme.surfaceContainerHighest
+                              .withValues(alpha: 0.4),
                     borderRadius: BorderRadius.circular(20),
                     border: Border.all(
                       color: p.sincronizado
                           ? AppColors.success.withValues(alpha: 0.3)
-                          : Theme.of(context).dividerColor.withValues(alpha: 0.5),
+                          : Theme.of(
+                              context,
+                            ).dividerColor.withValues(alpha: 0.5),
                     ),
                   ),
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Icon(
-                        p.sincronizado ? Icons.cloud_done_rounded : Icons.cloud_off_rounded,
-                        color: p.sincronizado ? AppColors.success : AppColors.textDisabled,
+                        p.sincronizado
+                            ? Icons.cloud_done_rounded
+                            : Icons.cloud_off_rounded,
+                        color: p.sincronizado
+                            ? AppColors.success
+                            : AppColors.textDisabled,
                         size: 13,
                       ),
                       const SizedBox(width: 4),
@@ -642,7 +670,9 @@ class _PermisosPageState extends State<PermisosPage> {
                         style: TextStyle(
                           fontSize: 9,
                           fontWeight: FontWeight.w600,
-                          color: p.sincronizado ? AppColors.success : AppColors.textSecondary,
+                          color: p.sincronizado
+                              ? AppColors.success
+                              : AppColors.textSecondary,
                         ),
                       ),
                     ],
@@ -663,15 +693,26 @@ class _PermisosPageState extends State<PermisosPage> {
                       ? const SizedBox(
                           width: 20,
                           height: 20,
-                          child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.primary),
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: AppColors.primary,
+                          ),
                         )
                       : IconButton(
-                          icon: const Icon(Icons.cloud_upload_rounded, color: AppColors.primary, size: 20),
+                          icon: const Icon(
+                            Icons.cloud_upload_rounded,
+                            color: AppColors.primary,
+                            size: 20,
+                          ),
                           tooltip: 'Sincronizar ahora',
                           onPressed: () => _syncSinglePermiso(p),
                         ),
                 ] else ...[
-                  const Icon(Icons.check_circle_rounded, color: AppColors.success, size: 20),
+                  const Icon(
+                    Icons.check_circle_rounded,
+                    color: AppColors.success,
+                    size: 20,
+                  ),
                 ],
               ],
             ),
@@ -703,7 +744,11 @@ class _PermisosPageState extends State<PermisosPage> {
                 color: color.withValues(alpha: 0.1),
                 shape: BoxShape.circle,
               ),
-              child: Icon(Icons.assignment_turned_in_rounded, color: color, size: 16),
+              child: Icon(
+                Icons.assignment_turned_in_rounded,
+                color: color,
+                size: 16,
+              ),
             ),
             const SizedBox(width: 12),
             Expanded(
@@ -712,16 +757,26 @@ class _PermisosPageState extends State<PermisosPage> {
                 children: [
                   Text(
                     p.tipo.replaceAll('_', ' ').toUpperCase(),
-                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: color),
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 12,
+                      color: color,
+                    ),
                   ),
                   const SizedBox(height: 2),
                   Text(
                     'Vence: ${_formatDateStr(p.fechaFinal)}',
-                    style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 12),
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w600,
+                      fontSize: 12,
+                    ),
                   ),
                   Text(
                     'Del ${_formatDateStr(p.fechaInicio)} al ${_formatDateStr(p.fechaFinal)}',
-                    style: TextStyle(fontSize: 11, color: Theme.of(context).colorScheme.onSurfaceVariant),
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
                   ),
                   if (p.observacion != null && p.observacion!.isNotEmpty) ...[
                     const SizedBox(height: 4),
@@ -746,16 +801,27 @@ class _PermisosPageState extends State<PermisosPage> {
                       ? const SizedBox(
                           width: 16,
                           height: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.primary),
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: AppColors.primary,
+                          ),
                         )
                       : IconButton(
-                          icon: const Icon(Icons.cloud_upload_rounded, color: AppColors.primary, size: 18),
+                          icon: const Icon(
+                            Icons.cloud_upload_rounded,
+                            color: AppColors.primary,
+                            size: 18,
+                          ),
                           onPressed: () => _syncSinglePermiso(p),
                           padding: EdgeInsets.zero,
                           constraints: const BoxConstraints(),
                         ),
                 ] else ...[
-                  const Icon(Icons.check_circle_rounded, color: AppColors.success, size: 18),
+                  const Icon(
+                    Icons.check_circle_rounded,
+                    color: AppColors.success,
+                    size: 18,
+                  ),
                 ],
               ],
             ),
@@ -777,7 +843,9 @@ class _PermisosPageState extends State<PermisosPage> {
           final cedula = _groupedCedulas[index];
           final empleado = _empleadosMap[cedula];
           final permisosList = _groupedPermisos[cedula] ?? [];
-          final pendingCount = permisosList.where((p) => !p.sincronizado).length;
+          final pendingCount = permisosList
+              .where((p) => !p.sincronizado)
+              .length;
           final isExpanded = _expandedGroups[cedula] ?? false;
 
           return Card(
@@ -803,11 +871,19 @@ class _PermisosPageState extends State<PermisosPage> {
                       ? const BorderRadius.vertical(top: Radius.circular(12))
                       : BorderRadius.circular(12),
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 24,
+                      vertical: 16,
+                    ),
                     decoration: BoxDecoration(
-                      color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.25),
+                      color: Theme.of(context)
+                          .colorScheme
+                          .surfaceContainerHighest
+                          .withValues(alpha: 0.25),
                       borderRadius: isExpanded
-                          ? const BorderRadius.vertical(top: Radius.circular(12))
+                          ? const BorderRadius.vertical(
+                              top: Radius.circular(12),
+                            )
                           : BorderRadius.circular(12),
                     ),
                     child: Row(
@@ -818,7 +894,11 @@ class _PermisosPageState extends State<PermisosPage> {
                             color: AppColors.primary.withValues(alpha: 0.1),
                             shape: BoxShape.circle,
                           ),
-                          child: const Icon(Icons.person_rounded, color: AppColors.primary, size: 22),
+                          child: const Icon(
+                            Icons.person_rounded,
+                            color: AppColors.primary,
+                            size: 22,
+                          ),
                         ),
                         const SizedBox(width: 16),
                         Expanded(
@@ -837,7 +917,9 @@ class _PermisosPageState extends State<PermisosPage> {
                                 'Cédula: $cedula',
                                 style: TextStyle(
                                   fontSize: 13,
-                                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                                  color: Theme.of(
+                                    context,
+                                  ).colorScheme.onSurfaceVariant,
                                 ),
                               ),
                             ],
@@ -845,7 +927,10 @@ class _PermisosPageState extends State<PermisosPage> {
                         ),
                         // Badges de resumen
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 6,
+                          ),
                           decoration: BoxDecoration(
                             color: AppColors.primary.withValues(alpha: 0.1),
                             borderRadius: BorderRadius.circular(20),
@@ -862,7 +947,10 @@ class _PermisosPageState extends State<PermisosPage> {
                         const SizedBox(width: 8),
                         if (pendingCount > 0)
                           Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 6,
+                            ),
                             decoration: BoxDecoration(
                               color: AppColors.warning.withValues(alpha: 0.1),
                               borderRadius: BorderRadius.circular(20),
@@ -878,7 +966,10 @@ class _PermisosPageState extends State<PermisosPage> {
                           )
                         else
                           Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 6,
+                            ),
                             decoration: BoxDecoration(
                               color: AppColors.success.withValues(alpha: 0.1),
                               borderRadius: BorderRadius.circular(20),
@@ -932,7 +1023,9 @@ class _PermisosPageState extends State<PermisosPage> {
           final cedula = _groupedCedulas[index];
           final empleado = _empleadosMap[cedula];
           final permisosList = _groupedPermisos[cedula] ?? [];
-          final pendingCount = permisosList.where((p) => !p.sincronizado).length;
+          final pendingCount = permisosList
+              .where((p) => !p.sincronizado)
+              .length;
           final isExpanded = _expandedGroups[cedula] ?? false;
 
           return Card(
@@ -957,12 +1050,20 @@ class _PermisosPageState extends State<PermisosPage> {
                       });
                     },
                     child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 12,
+                      ),
                       child: Row(
                         children: [
                           CircleAvatar(
-                            backgroundColor: AppColors.primary.withValues(alpha: 0.1),
-                            child: const Icon(Icons.person_rounded, color: AppColors.primary),
+                            backgroundColor: AppColors.primary.withValues(
+                              alpha: 0.1,
+                            ),
+                            child: const Icon(
+                              Icons.person_rounded,
+                              color: AppColors.primary,
+                            ),
                           ),
                           const SizedBox(width: 12),
                           Expanded(
@@ -971,12 +1072,20 @@ class _PermisosPageState extends State<PermisosPage> {
                               children: [
                                 Text(
                                   empleado?.nombre ?? 'Empleado Desconocido',
-                                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 14,
+                                  ),
                                 ),
                                 const SizedBox(height: 2),
                                 Text(
                                   'Cédula: $cedula • ${permisosList.length} permisos',
-                                  style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant),
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: Theme.of(
+                                      context,
+                                    ).colorScheme.onSurfaceVariant,
+                                  ),
                                 ),
                               ],
                             ),
@@ -986,19 +1095,31 @@ class _PermisosPageState extends State<PermisosPage> {
                             Container(
                               padding: const EdgeInsets.all(6),
                               decoration: BoxDecoration(
-                                color: AppColors.warning.withValues(alpha: 0.15),
+                                color: AppColors.warning.withValues(
+                                  alpha: 0.15,
+                                ),
                                 shape: BoxShape.circle,
                               ),
-                              child: const Icon(Icons.cloud_off_rounded, color: AppColors.warning, size: 16),
+                              child: const Icon(
+                                Icons.cloud_off_rounded,
+                                color: AppColors.warning,
+                                size: 16,
+                              ),
                             )
                           else
                             Container(
                               padding: const EdgeInsets.all(6),
                               decoration: BoxDecoration(
-                                color: AppColors.success.withValues(alpha: 0.15),
+                                color: AppColors.success.withValues(
+                                  alpha: 0.15,
+                                ),
                                 shape: BoxShape.circle,
                               ),
-                              child: const Icon(Icons.cloud_done_rounded, color: AppColors.success, size: 16),
+                              child: const Icon(
+                                Icons.cloud_done_rounded,
+                                color: AppColors.success,
+                                size: 16,
+                              ),
                             ),
                           const SizedBox(width: 8),
                           Icon(
@@ -1016,10 +1137,15 @@ class _PermisosPageState extends State<PermisosPage> {
                   // Listado Desplegado
                   if (isExpanded)
                     Container(
-                      color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.15),
+                      color: Theme.of(context)
+                          .colorScheme
+                          .surfaceContainerHighest
+                          .withValues(alpha: 0.15),
                       padding: const EdgeInsets.all(8),
                       child: Column(
-                        children: permisosList.map((p) => _buildMobileRow(p)).toList(),
+                        children: permisosList
+                            .map((p) => _buildMobileRow(p))
+                            .toList(),
                       ),
                     ),
                 ],
@@ -1038,7 +1164,11 @@ class _PermisosPageState extends State<PermisosPage> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Icon(Icons.event_available, size: 64, color: AppColors.textDisabled),
+            const Icon(
+              Icons.event_available,
+              size: 64,
+              color: AppColors.textDisabled,
+            ),
             const SizedBox(height: 16),
             Text(
               _allPermisos.isEmpty
@@ -1073,20 +1203,23 @@ class _PermisosPageState extends State<PermisosPage> {
     final totalAll = _allPermisos.length;
     final totalSynced = _filteredPermisos.where((p) => p.sincronizado).length;
     final totalPending = totalFiltered - totalSynced;
-    
+
     // Contar permisos vigentes
     final activeCount = _filteredPermisos.where((p) {
       try {
         final f = DateTime.parse(p.fechaFinal);
         final today = DateTime.now();
         final normalizedToday = DateTime(today.year, today.month, today.day);
-        return f.isAfter(normalizedToday) || f.isAtSameMomentAs(normalizedToday);
+        return f.isAfter(normalizedToday) ||
+            f.isAtSameMomentAs(normalizedToday);
       } catch (_) {
         return true;
       }
     }).length;
 
-    final pagePadding = isWide ? const EdgeInsets.all(24) : const EdgeInsets.all(12);
+    final pagePadding = isWide
+        ? const EdgeInsets.all(24)
+        : const EdgeInsets.all(12);
     final statsAspectRatio = width > 600 ? 2.8 : (width > 420 ? 2.3 : 1.9);
 
     return Scaffold(
@@ -1102,7 +1235,10 @@ class _PermisosPageState extends State<PermisosPage> {
                 ? const SizedBox(
                     width: 20,
                     height: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.white,
+                    ),
                   )
                 : const Icon(Icons.sync),
             tooltip: 'Sincronizar todo',
@@ -1198,7 +1334,9 @@ class _PermisosPageState extends State<PermisosPage> {
                   // 2. Barra de Filtros Dinámicos
                   Card(
                     elevation: 1.5,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
                     margin: EdgeInsets.zero,
                     child: Padding(
                       padding: const EdgeInsets.all(12),
@@ -1239,9 +1377,7 @@ class _PermisosPageState extends State<PermisosPage> {
                   const SizedBox(height: 20),
 
                   // 3. Listado Grupal Colapsable
-                  Expanded(
-                    child: _buildListArea(isWide),
-                  ),
+                  Expanded(child: _buildListArea(isWide)),
                 ],
               ),
             ),
@@ -1270,7 +1406,7 @@ class _AddPermisoDialogState extends State<_AddPermisoDialog> {
 
   List<EmpleadoModel> _empleados = [];
   String? _selectedCedula;
-  
+
   String _tipo = 'CITA_MEDICA';
   DateTime _fechaInicio = DateTime.now();
   DateTime _fechaFinal = DateTime.now().add(const Duration(hours: 1));
@@ -1301,7 +1437,10 @@ class _AddPermisoDialogState extends State<_AddPermisoDialog> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error al cargar empleados: $e'), backgroundColor: AppColors.error),
+          SnackBar(
+            content: Text('Error al cargar empleados: $e'),
+            backgroundColor: AppColors.error,
+          ),
         );
       }
     }
@@ -1347,14 +1486,22 @@ class _AddPermisoDialogState extends State<_AddPermisoDialog> {
     if (!_formKey.currentState!.validate()) return;
     if (_selectedCedula == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Seleccione un empleado'), backgroundColor: AppColors.warning),
+        const SnackBar(
+          content: Text('Seleccione un empleado'),
+          backgroundColor: AppColors.warning,
+        ),
       );
       return;
     }
 
     if (_fechaFinal.isBefore(_fechaInicio)) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('La fecha y hora final no puede ser anterior a la inicial'), backgroundColor: AppColors.warning),
+        const SnackBar(
+          content: Text(
+            'La fecha y hora final no puede ser anterior a la inicial',
+          ),
+          backgroundColor: AppColors.warning,
+        ),
       );
       return;
     }
@@ -1364,7 +1511,10 @@ class _AddPermisoDialogState extends State<_AddPermisoDialog> {
       final permiso = PermisoModel(
         usuarioRegistrador: 'admin',
         cedulaEmpleado: _selectedCedula!,
-        fechaHora: DateTime.now().toIso8601String().substring(0, 19).replaceAll('T', ' '),
+        fechaHora: DateTime.now()
+            .toIso8601String()
+            .substring(0, 19)
+            .replaceAll('T', ' '),
         tipo: _tipo,
         fechaInicio: DateFormat('yyyy-MM-dd HH:mm:ss').format(_fechaInicio),
         fechaFinal: DateFormat('yyyy-MM-dd HH:mm:ss').format(_fechaFinal),
@@ -1379,7 +1529,10 @@ class _AddPermisoDialogState extends State<_AddPermisoDialog> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error al guardar permiso: $e'), backgroundColor: AppColors.error),
+          SnackBar(
+            content: Text('Error al guardar permiso: $e'),
+            backgroundColor: AppColors.error,
+          ),
         );
       }
     } finally {
@@ -1392,101 +1545,132 @@ class _AddPermisoDialogState extends State<_AddPermisoDialog> {
     return AlertDialog(
       title: const Text('Registrar Permiso'),
       content: SingleChildScrollView(
-        child: Form(
-          key: _formKey,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Selección de Empleado
-              DropdownButtonFormField<String>(
-                initialValue: _selectedCedula,
-                decoration: const InputDecoration(labelText: 'Empleado Autorizado'),
-                items: _empleados.map((e) {
-                  return DropdownMenuItem<String>(
-                    value: e.cedula,
-                    child: Text(e.nombre),
-                  );
-                }).toList(),
-                onChanged: (val) {
-                  if (val != null) setState(() => _selectedCedula = val);
-                },
-                validator: (v) => v == null ? 'Seleccione un empleado' : null,
-              ),
-              if (_empleados.isEmpty)
-                Padding(
-                  padding: const EdgeInsets.only(top: 4, left: 8),
-                  child: Text(
-                    '⚠️ Cree un empleado en "Empleados" primero.',
-                    style: TextStyle(color: AppColors.warning, fontSize: 11),
+        child: Container(
+          width: MediaQuery.of(context).size.width * 0.9,
+          constraints: BoxConstraints(maxWidth: 480),
+          child: Form(
+            key: _formKey,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Selección de Empleado
+                DropdownButtonFormField<String>(
+                  initialValue: _selectedCedula,
+                  decoration: const InputDecoration(
+                    labelText: 'Empleado Autorizado',
                   ),
+                  items: _empleados.map((e) {
+                    return DropdownMenuItem<String>(
+                      value: e.cedula,
+                      child: Text(e.nombre),
+                    );
+                  }).toList(),
+                  onChanged: (val) {
+                    if (val != null) setState(() => _selectedCedula = val);
+                  },
+                  validator: (v) => v == null ? 'Seleccione un empleado' : null,
                 ),
-              const SizedBox(height: 16),
-
-              // Tipo de Permiso
-              DropdownButtonFormField<String>(
-                initialValue: _tipo,
-                decoration: const InputDecoration(labelText: 'Motivo / Tipo de Permiso'),
-                items: const [
-                  DropdownMenuItem(value: 'CITA_MEDICA', child: Text('Cita Médica')),
-                  DropdownMenuItem(value: 'PERSONAL', child: Text('Asunto Personal')),
-                  DropdownMenuItem(value: 'LABORAL', child: Text('Comisión Laboral')),
-                  DropdownMenuItem(value: 'TRASLADO', child: Text('Traslado de Sede')),
-                  DropdownMenuItem(value: 'FIN_CONTRATO', child: Text('Término de Contrato')),
-                ],
-                onChanged: (val) {
-                  if (val != null) setState(() => _tipo = val);
-                },
-              ),
-              const SizedBox(height: 16),
-
-              // Observación
-              TextFormField(
-                controller: _observacionCtrl,
-                decoration: const InputDecoration(
-                  labelText: 'Observación / Detalles',
-                  border: OutlineInputBorder(),
-                  alignLabelWithHint: true,
-                ),
-                maxLines: 3,
-                maxLength: 400,
-                validator: (val) {
-                  if (val == null || val.trim().isEmpty) {
-                    return 'Ingrese una observación para el permiso';
-                  }
-                  return null;
-                },
-              ),
-              const SizedBox(height: 20),
-
-              // Rango de Fechas
-              Text(
-                'Vigencia (Fecha y Hora)',
-                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Theme.of(context).colorScheme.onSurfaceVariant),
-              ),
-              const SizedBox(height: 8),
-              Column(
-                children: [
-                  SizedBox(
-                    width: double.infinity,
-                    child: OutlinedButton.icon(
-                      onPressed: () => _selectDateTime(true),
-                      icon: const Icon(Icons.calendar_month, size: 16),
-                      label: Text('Desde: ${DateFormat('dd/MM/yyyy hh:mm a').format(_fechaInicio)}'),
+                if (_empleados.isEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4, left: 8),
+                    child: Text(
+                      '⚠️ Cree un empleado en "Empleados" primero.',
+                      style: TextStyle(color: AppColors.warning, fontSize: 11),
                     ),
                   ),
-                  const SizedBox(height: 8),
-                  SizedBox(
-                    width: double.infinity,
-                    child: OutlinedButton.icon(
-                      onPressed: () => _selectDateTime(false),
-                      icon: const Icon(Icons.calendar_month, size: 16),
-                      label: Text('Hasta: ${DateFormat('dd/MM/yyyy hh:mm a').format(_fechaFinal)}'),
-                    ),
+                const SizedBox(height: 16),
+
+                // Tipo de Permiso
+                DropdownButtonFormField<String>(
+                  initialValue: _tipo,
+                  decoration: const InputDecoration(
+                    labelText: 'Motivo / Tipo de Permiso',
                   ),
-                ],
-              ),
-            ],
+                  items: const [
+                    DropdownMenuItem(
+                      value: 'CITA_MEDICA',
+                      child: Text('Cita Médica'),
+                    ),
+                    DropdownMenuItem(
+                      value: 'PERSONAL',
+                      child: Text('Asunto Personal'),
+                    ),
+                    DropdownMenuItem(
+                      value: 'LABORAL',
+                      child: Text('Comisión Laboral'),
+                    ),
+                    DropdownMenuItem(
+                      value: 'TRASLADO',
+                      child: Text('Traslado de Sede'),
+                    ),
+                    DropdownMenuItem(
+                      value: 'FIN_CONTRATO',
+                      child: Text('Término de Contrato'),
+                    ),
+                  ],
+                  onChanged: (val) {
+                    if (val != null) setState(() => _tipo = val);
+                  },
+                ),
+                const SizedBox(height: 16),
+
+                // Observación
+                TextFormField(
+                  controller: _observacionCtrl,
+                  decoration: const InputDecoration(
+                    labelText: 'Observación / Detalles',
+                    border: OutlineInputBorder(),
+                    alignLabelWithHint: true,
+                  ),
+                  maxLines: 3,
+                  maxLength: 400,
+                  validator: (val) {
+                    if (val == null || val.trim().isEmpty) {
+                      return 'Ingrese una observación para el permiso';
+                    }
+                    return null;
+                  },
+                ),
+                const SizedBox(height: 20),
+
+                // Rango de Fechas
+                Text(
+                  'Vigencia (Fecha y Hora)',
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 13,
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Column(
+                  children: [
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        onPressed: () => _selectDateTime(true),
+                        icon: const Icon(Icons.calendar_month, size: 16),
+                        label: Text(
+                          'Desde: ${DateFormat('dd/MM/yyyy hh:mm a').format(_fechaInicio)}',
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        onPressed: () => _selectDateTime(false),
+                        icon: const Icon(Icons.calendar_month, size: 16),
+                        label: Text(
+                          'Hasta: ${DateFormat('dd/MM/yyyy hh:mm a').format(_fechaFinal)}',
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -1501,7 +1685,10 @@ class _AddPermisoDialogState extends State<_AddPermisoDialog> {
               ? const SizedBox(
                   height: 16,
                   width: 16,
-                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Colors.white,
+                  ),
                 )
               : const Text('Autorizar Permiso'),
         ),

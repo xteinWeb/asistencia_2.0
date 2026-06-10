@@ -60,6 +60,9 @@ dependencies:
   # Preferencias
   shared_preferences: ^2.3.2
 
+  # Text to Speech
+  flutter_tts: ^3.8.5
+
   # Internacionalización y fechas
   intl: ^0.19.0
 

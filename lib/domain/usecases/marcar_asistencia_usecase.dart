@@ -88,23 +88,55 @@ class MarcarAsistenciaUseCase {
         return MarcarAsistenciaResult.error('Registro Inválido: Ya has marcado tu Salida final por el día de hoy.');
       }
 
-      // Validar salida anticipada frente al horario del turno
+      // Validar salida anticipada u tardía frente al horario del turno
       if (empleado.horarioId != null) {
         final horario = await _db.getHorarioById(empleado.horarioId!);
-        if (horario != null && horario.horaFinal.isNotEmpty) {
-          final parts = horario.horaFinal.split(':');
-          if (parts.length >= 2) {
-            final hour = int.tryParse(parts[0]);
-            final minute = int.tryParse(parts[1]);
-            if (hour != null && minute != null) {
-              final finTurno = DateTime(ahora.year, ahora.month, ahora.day, hour, minute);
-              if (ahora.isBefore(finTurno)) {
-                // Se requiere un permiso activo en este momento para poder salir temprano
-                final permisoActivo = await _db.getPermisoActivoByCedula(empleado.cedula);
-                if (permisoActivo == null) {
-                  return MarcarAsistenciaResult.error(
-                    'No se puede marcar salida antes de la hora de finalización del turno (${horario.horaFinal}) a menos que exista un permiso activo.',
-                  );
+        if (horario != null && horario.items.isNotEmpty) {
+          // Filtrar items del horario activos para el día de hoy y de tipo PRODUCTIVA
+          final itemsHoyProductivos = horario.items.where((item) {
+            bool activeToday = false;
+            switch (ahora.weekday) {
+              case DateTime.monday: activeToday = item.lunes; break;
+              case DateTime.tuesday: activeToday = item.martes; break;
+              case DateTime.wednesday: activeToday = item.miercoles; break;
+              case DateTime.thursday: activeToday = item.jueves; break;
+              case DateTime.friday: activeToday = item.viernes; break;
+              case DateTime.saturday: activeToday = item.sabado; break;
+              case DateTime.sunday: activeToday = item.domingo; break;
+            }
+            return activeToday && item.tipo.toUpperCase() == 'PRODUCTIVA';
+          }).toList();
+
+          String horaFinalStr = horario.horaFinal; // Fallback al final general
+          if (itemsHoyProductivos.isNotEmpty) {
+            // Ordenar por hora de finalización y tomar la más tardía
+            itemsHoyProductivos.sort((a, b) => a.finalTime.compareTo(b.finalTime));
+            horaFinalStr = itemsHoyProductivos.last.finalTime;
+          }
+
+          if (horaFinalStr.isNotEmpty) {
+            final parts = horaFinalStr.split(':');
+            if (parts.length >= 2) {
+              final hour = int.tryParse(parts[0]);
+              final minute = int.tryParse(parts[1]);
+              if (hour != null && minute != null) {
+                final finTurno = DateTime(ahora.year, ahora.month, ahora.day, hour, minute);
+                if (ahora.isBefore(finTurno)) {
+                  // Se requiere un permiso activo en este momento para poder salir temprano
+                  final permisoActivo = await _db.getPermisoActivoByCedula(empleado.cedula);
+                  if (permisoActivo == null) {
+                    final horaFinalMostrada = horaFinalStr.length >= 5 ? horaFinalStr.substring(0, 5) : horaFinalStr;
+                    return MarcarAsistenciaResult.error(
+                      'No se puede marcar salida antes de la hora de finalización del turno ($horaFinalMostrada) a menos que exista un permiso activo.',
+                    );
+                  }
+                } else if (ahora.isAfter(finTurno)) {
+                  final diff = ahora.difference(finTurno);
+                  if (diff.inMinutes > 0) {
+                    duracionFinal = '${diff.inMinutes} minutos';
+                    final horaFinalMostrada = horaFinalStr.length >= 5 ? horaFinalStr.substring(0, 5) : horaFinalStr;
+                    descripcion = 'Salida de jornada registrada correctamente (${diff.inMinutes} minutos después de la hora del turno $horaFinalMostrada). ¡Hasta mañana!';
+                  }
                 }
               }
             }
@@ -113,7 +145,9 @@ class MarcarAsistenciaUseCase {
       }
 
       evento = AppConstants.eventoSalida;
-      descripcion = 'Salida de jornada registrada correctamente. ¡Hasta mañana!';
+      if (descripcion.isEmpty) {
+        descripcion = 'Salida de jornada registrada correctamente. ¡Hasta mañana!';
+      }
     }
     // ─── CASO 2: SALIDA POR PERMISO (Botón Permiso con Entrada ya registrada) ───
     else if (tipoSeleccionado == TipoRegistro.permiso && yaTieneEntrada) {

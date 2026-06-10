@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -20,6 +21,7 @@ class _AppState extends State<App> {
   late final DatabaseHelper _db;
   late final ConnectivityService _connectivity;
   late final SyncService _syncService;
+  StreamSubscription<bool>? _connectivitySubscription;
 
   @override
   void initState() {
@@ -30,10 +32,19 @@ class _AppState extends State<App> {
 
     // Iniciar la sincronización periódica en segundo plano
     _syncService.startPeriodicSync();
+
+    // Escuchar cambios de conectividad para sincronizar de inmediato al recuperar conexión
+    _connectivitySubscription = _connectivity.onConnectivityChanged.listen((connected) {
+      if (connected) {
+        debugPrint("[Connectivity] Conexión recuperada. Iniciando sincronización automática...");
+        _syncService.syncAll();
+      }
+    });
   }
 
   @override
   void dispose() {
+    _connectivitySubscription?.cancel();
     _syncService.stopSync();
     super.dispose();
   }

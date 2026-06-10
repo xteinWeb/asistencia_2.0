@@ -6,13 +6,13 @@ enum AppEnvironment { dev, prod }
 class Environment {
   /// Define el entorno activo.
   /// Cambia a [AppEnvironment.prod] para pasar a producción.
-  static const AppEnvironment active = AppEnvironment.dev;
+  static const AppEnvironment active = AppEnvironment.prod;
 
   /// URL del servidor de desarrollo (Local).
   static const String devBaseUrl = 'http://192.168.11.6:8085';
 
   /// URL del servidor de producción.
-  static const String prodBaseUrl = 'https://tu-api-produccion.com';
+  static const String prodBaseUrl = 'https://81.79.25.235:8085';
 
   /// Retorna la URL base correspondiente al entorno activo.
   static String get apiUrl {
