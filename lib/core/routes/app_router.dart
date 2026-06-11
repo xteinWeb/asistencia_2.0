@@ -12,6 +12,7 @@ import '../../presentation/pages/permisos/permisos_page.dart';
 import '../../presentation/pages/configuracion/configuracion_page.dart';
 import '../../presentation/pages/ausentismo/ausentismo_page.dart';
 import '../../presentation/pages/reportes/reportes_page.dart';
+import '../../presentation/pages/registro_masivo/registro_masivo_page.dart';
 
 class AppRoutes {
   AppRoutes._();
@@ -29,6 +30,7 @@ class AppRoutes {
   static const String configuracion = '/configuracion';
   static const String ausentismo = '/ausentismo';
   static const String reportes = '/reportes';
+  static const String registroMasivo = '/empleado/registro-masivo';
 }
 
 final appRouter = GoRouter(
@@ -87,6 +89,10 @@ final appRouter = GoRouter(
     GoRoute(
       path: AppRoutes.reportes,
       builder: (context, state) => const ReportesPage(),
+    ),
+    GoRoute(
+      path: AppRoutes.registroMasivo,
+      builder: (context, state) => const RegistroMasivoPage(),
     ),
   ],
 );

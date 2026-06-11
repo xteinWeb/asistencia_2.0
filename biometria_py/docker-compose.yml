@@ -19,6 +19,9 @@ services:
     volumes:
       - biometria_temp_faces:/app/temp_faces
       - ./fotos_empleados:/app/fotos_empleados
+      - ./fotos_registro_masivo:/app/fotos_registro_masivo
+      - ./bulk_register.py:/app/bulk_register.py
+
 
 volumes:
   biometria_temp_faces:

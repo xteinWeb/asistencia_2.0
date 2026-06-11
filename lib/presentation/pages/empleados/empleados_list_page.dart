@@ -983,10 +983,24 @@ class _EmpleadosListPageState extends State<EmpleadosListPage> {
                 ],
               ),
             ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: () => context.go(AppRoutes.registroEmpleado),
-        tooltip: 'Registrar nuevo empleado',
-        child: const Icon(Icons.person_add),
+      floatingActionButton: Column(
+        mainAxisAlignment: MainAxisAlignment.end,
+        children: [
+          FloatingActionButton(
+            heroTag: 'btn_registro_masivo',
+            onPressed: () => context.go(AppRoutes.registroMasivo),
+            tooltip: 'Importación Masiva (Excel/CSV)',
+            backgroundColor: AppColors.info,
+            child: const Icon(Icons.file_upload),
+          ),
+          const SizedBox(height: 12),
+          FloatingActionButton(
+            heroTag: 'btn_registro_individual',
+            onPressed: () => context.go(AppRoutes.registroEmpleado),
+            tooltip: 'Registrar nuevo empleado',
+            child: const Icon(Icons.person_add),
+          ),
+        ],
       ),
     );
   }
