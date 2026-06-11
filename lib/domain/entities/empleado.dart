@@ -9,6 +9,7 @@ class Empleado {
   final String? sedePrincipal;
   final String? idSeccion;
   final String? tipo; // OPERATIVO / ADMINISTRATIVO
+  final String? fechaRegistro;
 
   const Empleado({
     required this.cedula,
@@ -21,9 +22,10 @@ class Empleado {
     this.sedePrincipal,
     this.idSeccion,
     this.tipo,
+    this.fechaRegistro,
   });
 
   @override
-  String toString() => 'Empleado(cedula: $cedula, nombre: $nombre, estado: $estado, sedePrincipal: $sedePrincipal, idSeccion: $idSeccion, tipo: $tipo)';
+  String toString() => 'Empleado(cedula: $cedula, nombre: $nombre, estado: $estado, sedePrincipal: $sedePrincipal, idSeccion: $idSeccion, tipo: $tipo, fechaRegistro: $fechaRegistro)';
 }
 

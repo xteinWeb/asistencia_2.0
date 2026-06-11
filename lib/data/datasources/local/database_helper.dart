@@ -139,6 +139,7 @@ class DatabaseHelper {
         sede_principal      TEXT,
         id_seccion          TEXT,
         tipo                TEXT,
+        fecha_registro      TEXT,
         FOREIGN KEY (horario_id) REFERENCES ${DbConstants.tableHorarios}(id_horario)
       )
     ''');
@@ -406,6 +407,15 @@ class DatabaseHelper {
         await db.execute('PRAGMA foreign_keys = ON');
       } catch (e) {
         debugPrint('Error al migrar horarios a version 10: $e');
+      }
+    }
+    if (oldVersion < 11) {
+      try {
+        await db.execute(
+          "ALTER TABLE ${DbConstants.tableEmpleados} ADD COLUMN fecha_registro TEXT",
+        );
+      } catch (e) {
+        debugPrint('Error al agregar columna fecha_registro en SQLite: $e');
       }
     }
   }
@@ -1309,6 +1319,53 @@ class DatabaseHelper {
       'UPDATE ausentismos SET sincronizado = 1 WHERE id IN ($placeholders)',
       ids,
     );
+  }
+
+  Future<List<RegistroModel>> getRegistrosRango(String fechaInicio, String fechaFinal) async {
+    if (kIsWeb) {
+      final allRegs = await getAllRegistros();
+      return allRegs.where((r) {
+        if (r.fechaHora.length < 10) return false;
+        final f = r.fechaHora.substring(0, 10);
+        return f.compareTo(fechaInicio) >= 0 && f.compareTo(fechaFinal) <= 0;
+      }).toList();
+    }
+
+    final db = await database;
+    final rows = await db.query(
+      DbConstants.tableRegistros,
+      where: "substr(fecha_hora, 1, 10) >= ? AND substr(fecha_hora, 1, 10) <= ?",
+      whereArgs: [fechaInicio, fechaFinal],
+      orderBy: 'fecha_hora DESC',
+    );
+    return rows.map(RegistroModel.fromMap).toList();
+  }
+
+  Future<List<AusentismoModel>> getAusentismosRango(String fechaInicio, String fechaFinal) async {
+    if (kIsWeb) {
+      final baseUrl = await getConfig(DbConstants.cfgUrlApi) ?? ApiConstants.defaultBaseUrl;
+      final response = await http.get(Uri.parse('$baseUrl/api/sync/ausentismos'));
+      if (response.statusCode == 200) {
+        final body = jsonDecode(response.body);
+        if (body['success'] == true) {
+          final data = body['data'] as List;
+          return data
+              .map((item) => AusentismoModel.fromMap(Map<String, dynamic>.from(item)..['sincronizado'] = 1))
+              .where((a) => a.fecha.compareTo(fechaInicio) >= 0 && a.fecha.compareTo(fechaFinal) <= 0)
+              .toList();
+        }
+      }
+      return [];
+    }
+
+    final db = await database;
+    final rows = await db.query(
+      'ausentismos',
+      where: "fecha >= ? AND fecha <= ?",
+      whereArgs: [fechaInicio, fechaFinal],
+      orderBy: 'fecha DESC',
+    );
+    return rows.map(AusentismoModel.fromMap).toList();
   }
 
   // ─── UTILS ────────────────────────────────────────────────────────────────

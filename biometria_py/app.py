@@ -372,6 +372,7 @@ class EmpleadoSyncItem(BaseModel):
     sede_principal: Optional[str] = None
     id_seccion: Optional[str] = None
     tipo: Optional[str] = None
+    fecha_registro: Optional[str] = None
 
 class HorarioSyncItem(BaseModel):
     id_horario: str
@@ -494,7 +495,7 @@ def obtener_empleados():
         conn = get_db_connection()
         cursor = conn.cursor(as_dict=True)
         cursor.execute("""
-            SELECT e.cedula, e.nombre, e.mapa_vector_foto, e.horario_id, e.fecha_ini_contrato, e.fecha_fin_contrato, e.estado, e.sede_principal, e.id_seccion, COALESCE(e.tipo, et.tipo) AS tipo 
+            SELECT e.cedula, e.nombre, e.mapa_vector_foto, e.horario_id, e.fecha_ini_contrato, e.fecha_fin_contrato, e.estado, e.sede_principal, e.id_seccion, COALESCE(e.tipo, et.tipo) AS tipo, e.fecha_creacion AS fecha_registro
             FROM empleados_asistencia e
             LEFT JOIN empleados_tipo et ON e.cedula = et.cedula
         """)
@@ -739,6 +740,7 @@ def sincronizar_empleados(listado: List[EmpleadoSyncItem]):
             DECLARE @sedePrincipal VARCHAR(150) = %s;
             DECLARE @idSeccion VARCHAR(50) = %s;
             DECLARE @tipo VARCHAR(30) = %s;
+            DECLARE @fechaRegistro VARCHAR(30) = %s;
 
             MERGE empleados_asistencia AS target
             USING (SELECT @cedula AS cedula) AS source
@@ -753,10 +755,11 @@ def sincronizar_empleados(listado: List[EmpleadoSyncItem]):
                     estado = COALESCE(@estado, target.estado),
                     sede_principal = @sedePrincipal,
                     id_seccion = @idSeccion,
-                    tipo = @tipo
+                    tipo = @tipo,
+                    fecha_creacion = COALESCE(@fechaRegistro, target.fecha_creacion)
             WHEN NOT MATCHED THEN
                 INSERT (cedula, nombre, mapa_vector_foto, horario_id, fecha_ini_contrato, fecha_fin_contrato, estado, sede_principal, id_seccion, tipo, fecha_creacion)
-                VALUES (@cedula, @nombre, @mapaVectorFoto, @horarioId, @fechaIniContrato, @fechaFinContrato, @estado, @sedePrincipal, @idSeccion, @tipo, GETDATE());
+                VALUES (@cedula, @nombre, @mapaVectorFoto, @horarioId, @fechaIniContrato, @fechaFinContrato, @estado, @sedePrincipal, @idSeccion, @tipo, COALESCE(@fechaRegistro, GETDATE()));
             """
             
             # Convertir horario_id a None si está vacío
@@ -772,7 +775,8 @@ def sincronizar_empleados(listado: List[EmpleadoSyncItem]):
                 emp.estado,
                 emp.sede_principal,
                 emp.id_seccion,
-                emp.tipo
+                emp.tipo,
+                emp.fecha_registro
             ))
             
             # MERGE para empleados_tipo

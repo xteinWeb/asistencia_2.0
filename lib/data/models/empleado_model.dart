@@ -15,6 +15,7 @@ class EmpleadoModel extends Empleado {
     super.sedePrincipal,
     super.idSeccion,
     super.tipo,
+    super.fechaRegistro,
     this.sincronizado = false,
   });
 
@@ -38,6 +39,7 @@ class EmpleadoModel extends Empleado {
       sedePrincipal: map['sede_principal'] as String?,
       idSeccion: map['id_seccion'] as String?,
       tipo: map['tipo'] as String?,
+      fechaRegistro: map['fecha_registro'] as String?,
       sincronizado: map['sincronizado'] == 1 || map['sincronizado'] == true,
     );
   }
@@ -55,6 +57,7 @@ class EmpleadoModel extends Empleado {
     'sede_principal': sedePrincipal,
     'id_seccion': idSeccion,
     'tipo': tipo,
+    'fecha_registro': fechaRegistro,
     'sincronizado': sincronizado ? 1 : 0,
   };
 
@@ -74,6 +77,7 @@ class EmpleadoModel extends Empleado {
     String? sedePrincipal,
     String? idSeccion,
     String? tipo,
+    String? fechaRegistro,
     bool? sincronizado,
   }) => EmpleadoModel(
     cedula: cedula ?? this.cedula,
@@ -86,6 +90,7 @@ class EmpleadoModel extends Empleado {
     sedePrincipal: sedePrincipal ?? this.sedePrincipal,
     idSeccion: idSeccion ?? this.idSeccion,
     tipo: tipo ?? this.tipo,
+    fechaRegistro: fechaRegistro ?? this.fechaRegistro,
     sincronizado: sincronizado ?? this.sincronizado,
   );
 }

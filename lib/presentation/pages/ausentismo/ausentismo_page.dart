@@ -31,8 +31,32 @@ class AusentismoPage extends StatefulWidget {
 
 class _AusentismoPageState extends State<AusentismoPage> {
   final _db = DatabaseHelper();
-  
+
   DateTime _selectedDate = DateTime.now();
+
+  bool get _isFutureDate {
+    final today = DateTime.now();
+    final todayDateOnly = DateTime(today.year, today.month, today.day);
+    final selectedDateOnly = DateTime(
+      _selectedDate.year,
+      _selectedDate.month,
+      _selectedDate.day,
+    );
+    return selectedDateOnly.isAfter(todayDateOnly);
+  }
+
+  bool get _isTodayOrFuture {
+    final today = DateTime.now();
+    final todayDateOnly = DateTime(today.year, today.month, today.day);
+    final selectedDateOnly = DateTime(
+      _selectedDate.year,
+      _selectedDate.month,
+      _selectedDate.day,
+    );
+    return selectedDateOnly.isAtSameMomentAs(todayDateOnly) ||
+        selectedDateOnly.isAfter(todayDateOnly);
+  }
+
   List<EmpleadoModel> _empleados = [];
   List<RegistroModel> _registrosDia = [];
   List<AusentismoModel> _ausentismosDia = [];
@@ -71,16 +95,26 @@ class _AusentismoPageState extends State<AusentismoPage> {
     try {
       final targetDateStr = DateFormat('yyyy-MM-dd').format(_selectedDate);
 
-      // 1. Obtener empleados activos
+      // 1. Obtener empleados activos y filtrar por su fecha de registro en el sistema (fechaRegistro)
       final emps = await _db.getAllEmpleados();
-      final activeEmps = emps.where((e) => e.estado.toUpperCase() == 'ACTIVO').toList();
+      final activeEmps = emps.where((e) {
+        if (e.estado.toUpperCase() != 'ACTIVO') return false;
+        if (e.fechaRegistro != null && e.fechaRegistro!.trim().isNotEmpty) {
+          final regStr = e.fechaRegistro!.trim();
+          final regDateStr = regStr.length >= 10 ? regStr.substring(0, 10) : regStr;
+          return regDateStr.compareTo(targetDateStr) <= 0;
+        }
+        return true;
+      }).toList();
 
       // 2. Obtener registros del día
       List<RegistroModel> regsDia = [];
       if (kIsWeb) {
         // En Web no hay DB local, consultamos todos y filtramos
         final allRegs = await _db.getAllRegistros();
-        regsDia = allRegs.where((r) => r.fechaHora.startsWith(targetDateStr)).toList();
+        regsDia = allRegs
+            .where((r) => r.fechaHora.startsWith(targetDateStr))
+            .toList();
       } else {
         // En local usamos base de datos SQLite y filtramos por fecha
         final dbHelper = DatabaseHelper();
@@ -106,10 +140,11 @@ class _AusentismoPageState extends State<AusentismoPage> {
         if (p.fechaInicio.length < 10 || p.fechaFinal.length < 10) return false;
         final start = p.fechaInicio.substring(0, 10);
         final end = p.fechaFinal.substring(0, 10);
-        return start.compareTo(targetDateStr) <= 0 && end.compareTo(targetDateStr) >= 0;
+        return start.compareTo(targetDateStr) <= 0 &&
+            end.compareTo(targetDateStr) >= 0;
       }).toList();
       final Map<String, PermisoModel> permisosDiaMap = {
-        for (final p in permisosDia) p.cedulaEmpleado: p
+        for (final p in permisosDia) p.cedulaEmpleado: p,
       };
 
       setState(() {
@@ -118,10 +153,10 @@ class _AusentismoPageState extends State<AusentismoPage> {
         _ausentismosDia = ausents;
         _tiposAusencia = types;
         _permisosDiaMap = permisosDiaMap;
-        
+
         // Inicializar el estado en memoria con las novedades guardadas de la BD
         _justificacionesTemporales = {
-          for (final a in ausents) a.cedulaEmpleado: a.siglaAusencia
+          for (final a in ausents) a.cedulaEmpleado: a.siglaAusencia,
         };
 
         // Resetear y poblar controllers
@@ -130,7 +165,9 @@ class _AusentismoPageState extends State<AusentismoPage> {
         }
         _obsControllers.clear();
         for (final a in ausents) {
-          _obsControllers[a.cedulaEmpleado] = TextEditingController(text: a.observacion ?? '');
+          _obsControllers[a.cedulaEmpleado] = TextEditingController(
+            text: a.observacion ?? '',
+          );
         }
 
         _hasUnsavedChanges = false;
@@ -139,7 +176,10 @@ class _AusentismoPageState extends State<AusentismoPage> {
       debugPrint('Error al cargar datos en AusentismoPage: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error al cargar datos: $e'), backgroundColor: AppColors.error),
+          SnackBar(
+            content: Text('Error al cargar datos: $e'),
+            backgroundColor: AppColors.error,
+          ),
         );
       }
     } finally {
@@ -165,14 +205,18 @@ class _AusentismoPageState extends State<AusentismoPage> {
         if (result.hasErrors) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('Sincronización finalizada con errores: ${result.errors.first}'),
+              content: Text(
+                'Sincronización finalizada con errores: ${result.errors.first}',
+              ),
               backgroundColor: AppColors.warning,
             ),
           );
         } else {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('¡Éxito! Sincronizados ${result.registros} registros de asistencia.'),
+              content: Text(
+                '¡Éxito! Sincronizados ${result.registros} registros de asistencia.',
+              ),
               backgroundColor: AppColors.success,
             ),
           );
@@ -182,7 +226,10 @@ class _AusentismoPageState extends State<AusentismoPage> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error de red al sincronizar: $e'), backgroundColor: AppColors.error),
+          SnackBar(
+            content: Text('Error de red al sincronizar: $e'),
+            backgroundColor: AppColors.error,
+          ),
         );
       }
     } finally {
@@ -209,7 +256,7 @@ class _AusentismoPageState extends State<AusentismoPage> {
   void _discardChanges() {
     setState(() {
       _justificacionesTemporales = {
-        for (final a in _ausentismosDia) a.cedulaEmpleado: a.siglaAusencia
+        for (final a in _ausentismosDia) a.cedulaEmpleado: a.siglaAusencia,
       };
 
       // Resetear controllers a los valores originales de la base de datos
@@ -218,13 +265,18 @@ class _AusentismoPageState extends State<AusentismoPage> {
       }
       _obsControllers.clear();
       for (final a in _ausentismosDia) {
-        _obsControllers[a.cedulaEmpleado] = TextEditingController(text: a.observacion ?? '');
+        _obsControllers[a.cedulaEmpleado] = TextEditingController(
+          text: a.observacion ?? '',
+        );
       }
 
       _hasUnsavedChanges = false;
     });
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Cambios descartados'), backgroundColor: AppColors.info),
+      const SnackBar(
+        content: Text('Cambios descartados'),
+        backgroundColor: AppColors.info,
+      ),
     );
   }
 
@@ -249,25 +301,32 @@ class _AusentismoPageState extends State<AusentismoPage> {
         final sigla = entry.value;
         final obsText = _obsControllers[cedula]?.text.trim() ?? '';
 
-        final existingList = _ausentismosDia.where((a) => a.cedulaEmpleado == cedula).toList();
+        final existingList = _ausentismosDia
+            .where((a) => a.cedulaEmpleado == cedula)
+            .toList();
         if (existingList.isNotEmpty) {
           final existing = existingList.first;
-          if (existing.siglaAusencia != sigla || existing.observacion != obsText) {
-            toSave.add(existing.copyWith(
+          if (existing.siglaAusencia != sigla ||
+              existing.observacion != obsText) {
+            toSave.add(
+              existing.copyWith(
+                siglaAusencia: sigla,
+                observacion: obsText.isNotEmpty ? obsText : null,
+                sincronizado: false,
+              ),
+            );
+          }
+        } else {
+          toSave.add(
+            AusentismoModel(
+              id: const Uuid().v4(),
+              cedulaEmpleado: cedula,
+              fecha: targetDateStr,
               siglaAusencia: sigla,
               observacion: obsText.isNotEmpty ? obsText : null,
               sincronizado: false,
-            ));
-          }
-        } else {
-          toSave.add(AusentismoModel(
-            id: const Uuid().v4(),
-            cedulaEmpleado: cedula,
-            fecha: targetDateStr,
-            siglaAusencia: sigla,
-            observacion: obsText.isNotEmpty ? obsText : null,
-            sincronizado: false,
-          ));
+            ),
+          );
         }
       }
 
@@ -279,14 +338,22 @@ class _AusentismoPageState extends State<AusentismoPage> {
       // 4. Ejecutar inserciones/actualizaciones en lote
       if (kIsWeb) {
         if (toSave.isNotEmpty) {
-          final baseUrl = await _db.getConfig(DbConstants.cfgUrlApi) ?? ApiConstants.defaultBaseUrl;
+          final baseUrl =
+              await _db.getConfig(DbConstants.cfgUrlApi) ??
+              ApiConstants.defaultBaseUrl;
           final response = await http.post(
             Uri.parse('$baseUrl/api/sync/ausentismos'),
             headers: {'Content-Type': 'application/json'},
-            body: jsonEncode(toSave.map((a) => a.copyWith(sincronizado: true).toMap()).toList()),
+            body: jsonEncode(
+              toSave
+                  .map((a) => a.copyWith(sincronizado: true).toMap())
+                  .toList(),
+            ),
           );
           if (response.statusCode != 200 && response.statusCode != 201) {
-            throw Exception('Error al guardar en el servidor: ${response.statusCode}');
+            throw Exception(
+              'Error al guardar en el servidor: ${response.statusCode}',
+            );
           }
         }
       } else {
@@ -321,7 +388,10 @@ class _AusentismoPageState extends State<AusentismoPage> {
       debugPrint('Error al guardar cambios: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error al guardar cambios: $e'), backgroundColor: AppColors.error),
+          SnackBar(
+            content: Text('Error al guardar cambios: $e'),
+            backgroundColor: AppColors.error,
+          ),
         );
       }
       setState(() => _loading = false);
@@ -330,25 +400,29 @@ class _AusentismoPageState extends State<AusentismoPage> {
 
   Future<void> _procesarRetardosDia() async {
     if (await _confirmDiscardChanges() == false) return;
-    
+
     setState(() => _loading = true);
     final targetDateStr = DateFormat('yyyy-MM-dd').format(_selectedDate);
-    
+
     try {
       if (kIsWeb) {
-        final baseUrl = await _db.getConfig(DbConstants.cfgUrlApi) ?? ApiConstants.defaultBaseUrl;
+        final baseUrl =
+            await _db.getConfig(DbConstants.cfgUrlApi) ??
+            ApiConstants.defaultBaseUrl;
         final response = await http.post(
           Uri.parse('$baseUrl/api/sync/generar-llt'),
           headers: {'Content-Type': 'application/json'},
           body: jsonEncode({'fecha': targetDateStr}),
         );
-        
+
         if (response.statusCode == 200) {
           final data = jsonDecode(response.body);
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
-                content: Text(data['message'] ?? 'Retardos procesados correctamente'),
+                content: Text(
+                  data['message'] ?? 'Retardos procesados correctamente',
+                ),
                 backgroundColor: AppColors.success,
               ),
             );
@@ -360,29 +434,31 @@ class _AusentismoPageState extends State<AusentismoPage> {
         // Ejecución en SQLite local (offline)
         final dbHelper = DatabaseHelper();
         final db = await dbHelper.database;
-        
+
         // 1. Obtener registros de entrada con retardo para la fecha seleccionada
         final registros = await db.query(
           DbConstants.tableRegistros,
-          where: "evento = 'ENTRADA' AND tipo = 'RETARDO' AND fecha_hora LIKE ?",
+          where:
+              "evento = 'ENTRADA' AND tipo = 'RETARDO' AND fecha_hora LIKE ?",
           whereArgs: ['$targetDateStr%'],
         );
-        
+
         int generados = 0;
         int actualizados = 0;
-        
+
         await db.transaction((txn) async {
           for (final r in registros) {
             final cedula = r['cedula'] as String;
             final duracion = r['duracion'] as String?;
             final obs = duracion != null ? 'Retardo: $duracion' : 'Retardo';
-            
+
             final existing = await txn.query(
               'ausentismos',
-              where: "cedula_empleado = ? AND fecha = ? AND sigla_ausencia = 'LLT'",
+              where:
+                  "cedula_empleado = ? AND fecha = ? AND sigla_ausencia = 'LLT'",
               whereArgs: [cedula, targetDateStr],
             );
-            
+
             if (existing.isEmpty) {
               final newId = const Uuid().v4();
               await txn.insert('ausentismos', {
@@ -406,24 +482,29 @@ class _AusentismoPageState extends State<AusentismoPage> {
             }
           }
         });
-        
+
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('Completado. Generados: $generados, Actualizados: $actualizados'),
+              content: Text(
+                'Completado. Generados: $generados, Actualizados: $actualizados',
+              ),
               backgroundColor: AppColors.success,
             ),
           );
         }
       }
-      
+
       // Recargar datos para mostrar los cambios
       await _loadData();
     } catch (e) {
       debugPrint('Error al procesar retardos del día: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error al procesar retardos: $e'), backgroundColor: AppColors.error),
+          SnackBar(
+            content: Text('Error al procesar retardos: $e'),
+            backgroundColor: AppColors.error,
+          ),
         );
       }
       setState(() => _loading = false);
@@ -458,32 +539,53 @@ class _AusentismoPageState extends State<AusentismoPage> {
 
   String _getDiaSemana(int weekday) {
     switch (weekday) {
-      case 1: return 'Lunes';
-      case 2: return 'Martes';
-      case 3: return 'Miércoles';
-      case 4: return 'Jueves';
-      case 5: return 'Viernes';
-      case 6: return 'Sábado';
-      case 7: return 'Domingo';
-      default: return '';
+      case 1:
+        return 'Lunes';
+      case 2:
+        return 'Martes';
+      case 3:
+        return 'Miércoles';
+      case 4:
+        return 'Jueves';
+      case 5:
+        return 'Viernes';
+      case 6:
+        return 'Sábado';
+      case 7:
+        return 'Domingo';
+      default:
+        return '';
     }
   }
 
   String _getMes(int month) {
     switch (month) {
-      case 1: return 'Enero';
-      case 2: return 'Febrero';
-      case 3: return 'Marzo';
-      case 4: return 'Abril';
-      case 5: return 'Mayo';
-      case 6: return 'Junio';
-      case 7: return 'Julio';
-      case 8: return 'Agosto';
-      case 9: return 'Septiembre';
-      case 10: return 'Octubre';
-      case 11: return 'Noviembre';
-      case 12: return 'Diciembre';
-      default: return '';
+      case 1:
+        return 'Enero';
+      case 2:
+        return 'Febrero';
+      case 3:
+        return 'Marzo';
+      case 4:
+        return 'Abril';
+      case 5:
+        return 'Mayo';
+      case 6:
+        return 'Junio';
+      case 7:
+        return 'Julio';
+      case 8:
+        return 'Agosto';
+      case 9:
+        return 'Septiembre';
+      case 10:
+        return 'Octubre';
+      case 11:
+        return 'Noviembre';
+      case 12:
+        return 'Diciembre';
+      default:
+        return '';
     }
   }
 
@@ -506,7 +608,8 @@ class _AusentismoPageState extends State<AusentismoPage> {
   List<EmpleadoModel> _getFilteredEmployees() {
     return _empleados.where((emp) {
       // 1. Filtrar por búsqueda
-      final matchesSearch = emp.nombre.toLowerCase().contains(_searchQuery.toLowerCase()) ||
+      final matchesSearch =
+          emp.nombre.toLowerCase().contains(_searchQuery.toLowerCase()) ||
           emp.cedula.contains(_searchQuery);
       if (!matchesSearch) return false;
 
@@ -543,7 +646,7 @@ class _AusentismoPageState extends State<AusentismoPage> {
         (r) => r.cedula == emp.cedula && r.evento == AppConstants.eventoEntrada,
       );
     }).length;
-    
+
     final absentCount = _empleados.where((emp) {
       final isPresent = _registrosDia.any(
         (r) => r.cedula == emp.cedula && r.evento == AppConstants.eventoEntrada,
@@ -562,8 +665,12 @@ class _AusentismoPageState extends State<AusentismoPage> {
       return isAbsent && (currentSigla != null || tienePermiso);
     }).length;
 
-    final presentPercent = totalCount > 0 ? ((presentCount / totalCount) * 100).toStringAsFixed(0) : '0';
-    final absentPercent = totalCount > 0 ? ((absentCount / totalCount) * 100).toStringAsFixed(0) : '0';
+    final presentPercent = totalCount > 0
+        ? ((presentCount / totalCount) * 100).toStringAsFixed(0)
+        : '0';
+    final absentPercent = totalCount > 0
+        ? ((absentCount / totalCount) * 100).toStringAsFixed(0)
+        : '0';
 
     final filteredList = _getFilteredEmployees();
 
@@ -584,8 +691,12 @@ class _AusentismoPageState extends State<AusentismoPage> {
           ),
           actions: [
             IconButton(
-              icon: Icon(_showStats ? Icons.analytics : Icons.analytics_outlined),
-              tooltip: _showStats ? 'Ocultar estadísticas' : 'Mostrar estadísticas',
+              icon: Icon(
+                _showStats ? Icons.analytics : Icons.analytics_outlined,
+              ),
+              tooltip: _showStats
+                  ? 'Ocultar estadísticas'
+                  : 'Mostrar estadísticas',
               color: _showStats ? Colors.amber : null,
               onPressed: () {
                 setState(() {
@@ -596,14 +707,19 @@ class _AusentismoPageState extends State<AusentismoPage> {
             IconButton(
               icon: const Icon(Icons.assignment_late_rounded),
               tooltip: 'Procesar retardos de este día',
-              onPressed: _loading ? null : _procesarRetardosDia,
+              onPressed: _loading || _isFutureDate
+                  ? null
+                  : _procesarRetardosDia,
             ),
             IconButton(
               icon: _syncing
                   ? const SizedBox(
                       width: 20,
                       height: 20,
-                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
                     )
                   : const Icon(Icons.refresh),
               tooltip: kIsWeb ? 'Recargar datos' : 'Sincronizar y recargar',
@@ -634,7 +750,9 @@ class _AusentismoPageState extends State<AusentismoPage> {
                       onPressed: () async {
                         if (await _confirmDiscardChanges()) {
                           setState(() {
-                            _selectedDate = _selectedDate.subtract(const Duration(days: 1));
+                            _selectedDate = _selectedDate.subtract(
+                              const Duration(days: 1),
+                            );
                           });
                           _loadData();
                         }
@@ -656,11 +774,16 @@ class _AusentismoPageState extends State<AusentismoPage> {
                         ),
                         onPressed: () async {
                           if (await _confirmDiscardChanges()) {
+                            final now = DateTime.now();
                             final picked = await showDatePicker(
                               context: context,
-                              initialDate: _selectedDate,
-                              firstDate: DateTime.now().subtract(const Duration(days: 365)),
-                              lastDate: DateTime.now().add(const Duration(days: 365)),
+                              initialDate: _selectedDate.isAfter(now)
+                                  ? now
+                                  : _selectedDate,
+                              firstDate: now.subtract(
+                                const Duration(days: 365),
+                              ),
+                              lastDate: now,
                             );
                             if (picked != null) {
                               setState(() {
@@ -675,24 +798,68 @@ class _AusentismoPageState extends State<AusentismoPage> {
                     IconButton(
                       icon: const Icon(Icons.chevron_right),
                       tooltip: 'Día siguiente',
-                      onPressed: () async {
-                        if (await _confirmDiscardChanges()) {
-                          setState(() {
-                            _selectedDate = _selectedDate.add(const Duration(days: 1));
-                          });
-                          _loadData();
-                        }
-                      },
+                      onPressed: _isTodayOrFuture
+                          ? null
+                          : () async {
+                              if (await _confirmDiscardChanges()) {
+                                setState(() {
+                                  _selectedDate = _selectedDate.add(
+                                    const Duration(days: 1),
+                                  );
+                                });
+                                _loadData();
+                              }
+                            },
                     ),
                   ],
                 ),
               ),
             ),
-      
+
+            // Advertencia si es una fecha futura
+            if (_isFutureDate)
+              Container(
+                margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 8,
+                ),
+                decoration: BoxDecoration(
+                  color: AppColors.errorLight,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                    color: AppColors.error.withValues(alpha: 0.3),
+                  ),
+                ),
+                child: const Row(
+                  children: [
+                    Icon(
+                      Icons.warning_amber_rounded,
+                      color: AppColors.error,
+                      size: 20,
+                    ),
+                    SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'No se pueden registrar ni modificar novedades para fechas futuras.',
+                        style: TextStyle(
+                          color: AppColors.error,
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
             // Panel de Estadísticas Colapsable con Transición Animada
             AnimatedCrossFade(
               firstChild: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 4,
+                ),
                 child: Row(
                   children: [
                     _buildStatCard(
@@ -723,16 +890,21 @@ class _AusentismoPageState extends State<AusentismoPage> {
                 ),
               ),
               secondChild: const SizedBox.shrink(),
-              crossFadeState: _showStats ? CrossFadeState.showFirst : CrossFadeState.showSecond,
+              crossFadeState: _showStats
+                  ? CrossFadeState.showFirst
+                  : CrossFadeState.showSecond,
               duration: const Duration(milliseconds: 250),
             ),
-      
+
             // Buscador y Pestañas de Filtro (Compactado)
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
               child: Card(
                 child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 8,
+                  ),
                   child: Column(
                     children: [
                       TextField(
@@ -756,7 +928,10 @@ class _AusentismoPageState extends State<AusentismoPage> {
                           children: [
                             _buildFilterChip('Todos', _FilterTab.todos),
                             const SizedBox(width: 6),
-                            _buildFilterChip('Asistieron', _FilterTab.asistieron),
+                            _buildFilterChip(
+                              'Asistieron',
+                              _FilterTab.asistieron,
+                            ),
                             const SizedBox(width: 6),
                             _buildFilterChip('Ausentes', _FilterTab.ausentes),
                             const SizedBox(width: 6),
@@ -769,163 +944,195 @@ class _AusentismoPageState extends State<AusentismoPage> {
                 ),
               ),
             ),
-      
+
             // Tabla CSS de Novedades de Asistencia
             Expanded(
               child: _loading
                   ? const Center(child: CircularProgressIndicator())
                   : filteredList.isEmpty
-                      ? Center(
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              const Icon(
-                                Icons.search_off,
-                                size: 56,
-                                color: AppColors.textDisabled,
-                              ),
-                              const SizedBox(height: 12),
-                              Text(
-                                'No se encontraron colaboradores',
-                                style: TextStyle(
-                                  fontSize: 14,
-                                  color: Theme.of(context).colorScheme.onSurfaceVariant,
-                                ),
-                              ),
-                            ],
+                  ? Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Icon(
+                            Icons.search_off,
+                            size: 56,
+                            color: AppColors.textDisabled,
                           ),
-                        )
-                      : Container(
-                          margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                          decoration: BoxDecoration(
-                            color: Theme.of(context).cardColor,
-                            borderRadius: BorderRadius.circular(8),
-                            border: Border.all(color: Colors.grey.shade300, width: 1),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withValues(alpha: 0.03),
-                                blurRadius: 6,
-                                offset: const Offset(0, 2),
-                              ),
-                            ],
+                          const SizedBox(height: 12),
+                          Text(
+                            'No se encontraron colaboradores',
+                            style: TextStyle(
+                              fontSize: 14,
+                              color: Theme.of(
+                                context,
+                              ).colorScheme.onSurfaceVariant,
+                            ),
                           ),
-                          child: Column(
-                            children: [
-                              // Cabecera de la Tabla (Estilo CSS Table Header)
-                              Container(
-                                decoration: BoxDecoration(
-                                  color: AppColors.primary.withValues(alpha: 0.08),
-                                  borderRadius: const BorderRadius.only(
-                                    topLeft: Radius.circular(7),
-                                    topRight: Radius.circular(7),
-                                  ),
-                                  border: Border(
-                                    bottom: BorderSide(color: Colors.grey.shade300, width: 1),
-                                  ),
-                                ),
-                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                                child: const Row(
-                                  children: [
-                                    Expanded(
-                                      flex: 2,
-                                      child: Text(
-                                        'Cédula',
-                                        style: TextStyle(
-                                          fontWeight: FontWeight.bold, 
-                                          fontSize: 13, 
-                                          color: AppColors.primaryDark,
-                                        ),
-                                      ),
-                                    ),
-                                    Expanded(
-                                      flex: 3,
-                                      child: Text(
-                                        'Colaborador',
-                                        style: TextStyle(
-                                          fontWeight: FontWeight.bold, 
-                                          fontSize: 13, 
-                                          color: AppColors.primaryDark,
-                                        ),
-                                      ),
-                                    ),
-                                    Expanded(
-                                      flex: 2,
-                                      child: Text(
-                                        'Tipo',
-                                        style: TextStyle(
-                                          fontWeight: FontWeight.bold, 
-                                          fontSize: 13, 
-                                          color: AppColors.primaryDark,
-                                        ),
-                                      ),
-                                    ),
-                                    Expanded(
-                                      flex: 5,
-                                      child: Text(
-                                        'Asistencia',
-                                        style: TextStyle(
-                                          fontWeight: FontWeight.bold, 
-                                          fontSize: 13, 
-                                          color: AppColors.primaryDark,
-                                        ),
-                                      ),
-                                    ),
-                                    Expanded(
-                                      flex: 4,
-                                      child: Text(
-                                        'Justificación / Novedad',
-                                        style: TextStyle(
-                                          fontWeight: FontWeight.bold, 
-                                          fontSize: 13, 
-                                          color: AppColors.primaryDark,
-                                        ),
-                                      ),
-                                    ),
-                                    Expanded(
-                                      flex: 4,
-                                      child: Text(
-                                        'Observación',
-                                        style: TextStyle(
-                                          fontWeight: FontWeight.bold, 
-                                          fontSize: 13, 
-                                          color: AppColors.primaryDark,
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              // Filas de la Tabla (Estilo CSS Table Rows)
-                              Expanded(
-                                child: ListView.builder(
-                                  itemCount: filteredList.length,
-                                  itemBuilder: (context, index) {
-                                    final emp = filteredList[index];
-                                    
-                                    // Verificar asistencia
-                                    final checkInRegs = _registrosDia.where(
-                                      (r) => r.cedula == emp.cedula && r.evento == AppConstants.eventoEntrada,
-                                    ).toList();
-                                    checkInRegs.sort((a, b) => a.fechaHora.compareTo(b.fechaHora));
-                                    final checkIn = checkInRegs.isNotEmpty ? checkInRegs.first : null;
-              
-                                    // Obtener novedad actual de la memoria temporal
-                                    final currentSigla = _justificacionesTemporales[emp.cedula];
-              
-                                    return _buildTableRow(emp, checkIn, currentSigla, index);
-                                  },
-                                ),
-                              ),
-                            ],
-                          ),
+                        ],
+                      ),
+                    )
+                  : Container(
+                      margin: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Theme.of(context).cardColor,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(
+                          color: Colors.grey.shade300,
+                          width: 1,
                         ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.03),
+                            blurRadius: 6,
+                            offset: const Offset(0, 2),
+                          ),
+                        ],
+                      ),
+                      child: Column(
+                        children: [
+                          // Cabecera de la Tabla (Estilo CSS Table Header)
+                          Container(
+                            decoration: BoxDecoration(
+                              color: AppColors.primary.withValues(alpha: 0.08),
+                              borderRadius: const BorderRadius.only(
+                                topLeft: Radius.circular(7),
+                                topRight: Radius.circular(7),
+                              ),
+                              border: Border(
+                                bottom: BorderSide(
+                                  color: Colors.grey.shade300,
+                                  width: 1,
+                                ),
+                              ),
+                            ),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 12,
+                            ),
+                            child: const Row(
+                              children: [
+                                Expanded(
+                                  flex: 2,
+                                  child: Text(
+                                    'Cédula',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 13,
+                                      color: AppColors.primaryDark,
+                                    ),
+                                  ),
+                                ),
+                                Expanded(
+                                  flex: 3,
+                                  child: Text(
+                                    'Colaborador',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 13,
+                                      color: AppColors.primaryDark,
+                                    ),
+                                  ),
+                                ),
+                                Expanded(
+                                  flex: 2,
+                                  child: Text(
+                                    'Tipo',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 13,
+                                      color: AppColors.primaryDark,
+                                    ),
+                                  ),
+                                ),
+                                Expanded(
+                                  flex: 5,
+                                  child: Text(
+                                    'Asistencia',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 13,
+                                      color: AppColors.primaryDark,
+                                    ),
+                                  ),
+                                ),
+                                Expanded(
+                                  flex: 4,
+                                  child: Text(
+                                    'Justificación / Novedad',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 13,
+                                      color: AppColors.primaryDark,
+                                    ),
+                                  ),
+                                ),
+                                Expanded(
+                                  flex: 4,
+                                  child: Text(
+                                    'Observación',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 13,
+                                      color: AppColors.primaryDark,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          // Filas de la Tabla (Estilo CSS Table Rows)
+                          Expanded(
+                            child: ListView.builder(
+                              itemCount: filteredList.length,
+                              itemBuilder: (context, index) {
+                                final emp = filteredList[index];
+
+                                // Verificar asistencia
+                                final checkInRegs = _registrosDia
+                                    .where(
+                                      (r) =>
+                                          r.cedula == emp.cedula &&
+                                          r.evento ==
+                                              AppConstants.eventoEntrada,
+                                    )
+                                    .toList();
+                                checkInRegs.sort(
+                                  (a, b) => a.fechaHora.compareTo(b.fechaHora),
+                                );
+                                final checkIn = checkInRegs.isNotEmpty
+                                    ? checkInRegs.first
+                                    : null;
+
+                                // Obtener novedad actual de la memoria temporal
+                                final currentSigla =
+                                    _justificacionesTemporales[emp.cedula];
+
+                                return _buildTableRow(
+                                  emp,
+                                  checkIn,
+                                  currentSigla,
+                                  index,
+                                );
+                              },
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
             ),
           ],
         ),
         bottomNavigationBar: _hasUnsavedChanges
             ? SafeArea(
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 12,
+                  ),
                   decoration: BoxDecoration(
                     color: Theme.of(context).cardColor,
                     border: Border(
@@ -969,7 +1176,12 @@ class _AusentismoPageState extends State<AusentismoPage> {
     );
   }
 
-  Widget _buildStatCard(String title, String value, IconData icon, Color color) {
+  Widget _buildStatCard(
+    String title,
+    String value,
+    IconData icon,
+    Color color,
+  ) {
     return Expanded(
       child: Card(
         elevation: 1,
@@ -981,7 +1193,10 @@ class _AusentismoPageState extends State<AusentismoPage> {
               const SizedBox(height: 2),
               Text(
                 value,
-                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 13,
+                ),
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 1),
@@ -1004,7 +1219,9 @@ class _AusentismoPageState extends State<AusentismoPage> {
       selected: isSelected,
       selectedColor: AppColors.primary.withValues(alpha: 0.15),
       labelStyle: TextStyle(
-        color: isSelected ? AppColors.primary : Theme.of(context).colorScheme.onSurface,
+        color: isSelected
+            ? AppColors.primary
+            : Theme.of(context).colorScheme.onSurface,
         fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
       ),
       padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
@@ -1019,10 +1236,15 @@ class _AusentismoPageState extends State<AusentismoPage> {
     );
   }
 
-  Widget _buildTableRow(EmpleadoModel emp, RegistroModel? checkIn, String? currentSigla, int index) {
+  Widget _buildTableRow(
+    EmpleadoModel emp,
+    RegistroModel? checkIn,
+    String? currentSigla,
+    int index,
+  ) {
     final isPresent = checkIn != null;
     final tienePermiso = _permisosDiaMap.containsKey(emp.cedula);
-    
+
     Color statusBgColor;
     Color statusTextColor;
     String statusText;
@@ -1033,12 +1255,14 @@ class _AusentismoPageState extends State<AusentismoPage> {
       if (tipoStr == 'RETARDO') {
         statusBgColor = const Color(0xFFFFF3E0); // light orange
         statusTextColor = Colors.orange.shade800; // orange
-        statusText = 'RETARDO${checkIn.duracion != null ? ' ${checkIn.duracion}' : ''} - ${_formatTime(checkIn.fechaHora)}';
+        statusText =
+            'RETARDO${checkIn.duracion != null ? ' ${checkIn.duracion}' : ''} - ${_formatTime(checkIn.fechaHora)}';
         statusIcon = Icons.warning_amber_rounded;
       } else if (tipoStr == 'PERMISO') {
         statusBgColor = const Color(0xFFF3E5F5); // light purple
         statusTextColor = const Color(0xFF7B1FA2); // purple
-        statusText = 'PERMISO${checkIn.duracion != null ? ' ${checkIn.duracion}' : ''} - ${_formatTime(checkIn.fechaHora)}';
+        statusText =
+            'PERMISO${checkIn.duracion != null ? ' ${checkIn.duracion}' : ''} - ${_formatTime(checkIn.fechaHora)}';
         statusIcon = Icons.card_membership_rounded;
       } else {
         statusBgColor = AppColors.successLight;
@@ -1047,7 +1271,9 @@ class _AusentismoPageState extends State<AusentismoPage> {
         statusIcon = Icons.check_circle;
       }
     } else if (currentSigla == 'PE' || (currentSigla == null && tienePermiso)) {
-      final tipoPermiso = tienePermiso ? _permisosDiaMap[emp.cedula]!.tipo : 'AUTORIZADO';
+      final tipoPermiso = tienePermiso
+          ? _permisosDiaMap[emp.cedula]!.tipo
+          : 'AUTORIZADO';
       statusBgColor = const Color(0xFFF3E5F5); // light purple
       statusTextColor = const Color(0xFF7B1FA2); // purple
       statusText = 'EN PERMISO ($tipoPermiso)';
@@ -1091,7 +1317,7 @@ class _AusentismoPageState extends State<AusentismoPage> {
               style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
             ),
           ),
-          
+
           // Columna Colaborador (Nombre)
           Expanded(
             flex: 3,
@@ -1102,7 +1328,7 @@ class _AusentismoPageState extends State<AusentismoPage> {
               overflow: TextOverflow.ellipsis,
             ),
           ),
-          
+
           // Columna Tipo
           Expanded(
             flex: 2,
@@ -1117,7 +1343,7 @@ class _AusentismoPageState extends State<AusentismoPage> {
                 child: Text(
                   emp.tipo ?? 'ADMINISTRATIVO',
                   style: TextStyle(
-                    fontSize: 9, 
+                    fontSize: 9,
                     fontWeight: FontWeight.bold,
                     color: Colors.grey.shade800,
                   ),
@@ -1125,7 +1351,7 @@ class _AusentismoPageState extends State<AusentismoPage> {
               ),
             ),
           ),
-          
+
           // Columna Asistencia
           Expanded(
             flex: 5,
@@ -1156,7 +1382,7 @@ class _AusentismoPageState extends State<AusentismoPage> {
               ),
             ),
           ),
-          
+
           // Columna Justificación
           Expanded(
             flex: 4,
@@ -1169,22 +1395,29 @@ class _AusentismoPageState extends State<AusentismoPage> {
                     decoration: BoxDecoration(
                       border: Border.all(color: Colors.grey.shade300),
                       borderRadius: BorderRadius.circular(6),
-                      color: Colors.white,
+                      color: _isFutureDate
+                          ? Colors.grey.shade100
+                          : Colors.white,
                     ),
                     child: DropdownButtonHideUnderline(
                       child: DropdownButton<String>(
                         value: currentSigla ?? '',
                         isExpanded: true,
                         style: TextStyle(
-                          color: Theme.of(context).colorScheme.onSurface, 
+                          color: _isFutureDate
+                              ? Colors.grey
+                              : Theme.of(context).colorScheme.onSurface,
                           fontSize: 12,
                         ),
                         items: [
                           const DropdownMenuItem<String>(
                             value: '',
                             child: Text(
-                              '-- Sin justificar --', 
-                              style: TextStyle(fontSize: 12, color: Colors.grey),
+                              '-- Sin justificar --',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.grey,
+                              ),
                             ),
                           ),
                           ..._tiposAusencia.map((t) {
@@ -1198,9 +1431,14 @@ class _AusentismoPageState extends State<AusentismoPage> {
                             );
                           }),
                         ],
-                        onChanged: (val) {
-                          _onJustificacionChanged(emp, (val == null || val.isEmpty) ? null : val);
-                        },
+                        onChanged: _isFutureDate
+                            ? null
+                            : (val) {
+                                _onJustificacionChanged(
+                                  emp,
+                                  (val == null || val.isEmpty) ? null : val,
+                                );
+                              },
                       ),
                     ),
                   ),
@@ -1219,7 +1457,7 @@ class _AusentismoPageState extends State<AusentismoPage> {
               ],
             ),
           ),
-          
+
           const SizedBox(width: 16),
 
           // Columna Observación
@@ -1230,10 +1468,14 @@ class _AusentismoPageState extends State<AusentismoPage> {
               padding: const EdgeInsets.symmetric(horizontal: 8),
               decoration: BoxDecoration(
                 border: Border.all(
-                  color: currentSigla != null ? Colors.grey.shade300 : Colors.grey.shade200,
+                  color: (currentSigla != null && !_isFutureDate)
+                      ? Colors.grey.shade300
+                      : Colors.grey.shade200,
                 ),
                 borderRadius: BorderRadius.circular(6),
-                color: currentSigla != null ? Colors.white : Colors.grey.shade100,
+                color: (currentSigla != null && !_isFutureDate)
+                    ? Colors.white
+                    : Colors.grey.shade100,
               ),
               child: Center(
                 child: TextField(
@@ -1241,14 +1483,18 @@ class _AusentismoPageState extends State<AusentismoPage> {
                     emp.cedula,
                     () => TextEditingController(text: ''),
                   ),
-                  enabled: currentSigla != null,
+                  enabled: currentSigla != null && !_isFutureDate,
                   style: const TextStyle(fontSize: 12),
                   decoration: InputDecoration(
-                    hintText: currentSigla != null ? 'Escribir observación...' : 'Sin justificar',
+                    hintText: (currentSigla != null && !_isFutureDate)
+                        ? 'Escribir observación...'
+                        : 'Sin justificar',
                     hintStyle: TextStyle(
                       fontSize: 11,
                       color: Colors.grey.shade400,
-                      fontStyle: currentSigla != null ? FontStyle.normal : FontStyle.italic,
+                      fontStyle: (currentSigla != null && !_isFutureDate)
+                          ? FontStyle.normal
+                          : FontStyle.italic,
                     ),
                     border: InputBorder.none,
                     isDense: true,

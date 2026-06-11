@@ -12,7 +12,7 @@ class Environment {
   static const String devBaseUrl = 'http://192.168.11.6:8085';
 
   /// URL del servidor de producción.
-  static const String prodBaseUrl = 'https://81.79.25.235:8085';
+  static const String prodBaseUrl = 'http://181.79.25.235:8085';
 
   /// Retorna la URL base correspondiente al entorno activo.
   static String get apiUrl {

@@ -11,6 +11,7 @@ import '../../presentation/pages/horarios/horarios_page.dart';
 import '../../presentation/pages/permisos/permisos_page.dart';
 import '../../presentation/pages/configuracion/configuracion_page.dart';
 import '../../presentation/pages/ausentismo/ausentismo_page.dart';
+import '../../presentation/pages/reportes/reportes_page.dart';
 
 class AppRoutes {
   AppRoutes._();
@@ -27,6 +28,7 @@ class AppRoutes {
   static const String permisos = '/permisos';
   static const String configuracion = '/configuracion';
   static const String ausentismo = '/ausentismo';
+  static const String reportes = '/reportes';
 }
 
 final appRouter = GoRouter(
@@ -81,6 +83,10 @@ final appRouter = GoRouter(
     GoRoute(
       path: AppRoutes.ausentismo,
       builder: (context, state) => const AusentismoPage(),
+    ),
+    GoRoute(
+      path: AppRoutes.reportes,
+      builder: (context, state) => const ReportesPage(),
     ),
   ],
 );

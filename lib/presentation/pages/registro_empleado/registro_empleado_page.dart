@@ -446,6 +446,7 @@ class _RegistroEmpleadoPageState extends State<RegistroEmpleadoPage> {
         sedePrincipal: null,
         idSeccion: _selectedTipo == 'OPERATIVO' ? _selectedSeccionId : null,
         tipo: _selectedTipo,
+        fechaRegistro: DateTime.now().toIso8601String(),
       );
 
       // 3. Guardar en SQLite local

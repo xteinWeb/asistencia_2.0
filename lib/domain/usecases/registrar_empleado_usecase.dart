@@ -60,6 +60,7 @@ class RegistrarEmpleadoUseCase {
       sedePrincipal: sedePrincipal,
       idSeccion: idSeccion,
       tipo: tipo,
+      fechaRegistro: DateTime.now().toIso8601String(),
     );
 
     // Guardar en SQLite local

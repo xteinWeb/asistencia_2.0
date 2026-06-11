@@ -101,6 +101,13 @@ class _HomePageState extends State<HomePage> {
         route: AppRoutes.ausentismo,
       ),
       _MenuItem(
+        icon: Icons.analytics_outlined,
+        label: 'Reportes',
+        subtitle: 'Históricos y estadísticas',
+        color: AppColors.info,
+        route: AppRoutes.reportes,
+      ),
+      _MenuItem(
         icon: Icons.settings_outlined,
         label: 'Configuración',
         subtitle: 'Ajustes del sistema',

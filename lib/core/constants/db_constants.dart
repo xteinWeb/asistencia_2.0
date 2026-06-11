@@ -1,6 +1,6 @@
 class DbConstants {
   static const String dbName = 'asistencia_empleados.db';
-  static const int dbVersion = 10;
+  static const int dbVersion = 11;
 
 
   // Table names
@@ -18,6 +18,7 @@ class DbConstants {
   static const String colHorarioId = 'horario_id';
   static const String colFechaIniContrato = 'fecha_ini_contrato';
   static const String colFechaFinContrato = 'fecha_fin_contrato';
+  static const String colFechaRegistro = 'fecha_registro';
 
   // Horarios columns
   static const String colIdHorario = 'id_horario';
