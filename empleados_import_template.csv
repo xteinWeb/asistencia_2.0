@@ -1,0 +1,3 @@
+cedula;nombre;tipo;fecha_inicio;fecha_fin;horario_id;id_seccion;sede_principal;foto
+1009876543;Juan Perez;OPERATIVO;2026-01-01;;01;S01;Sede Norte;juan.jpg
+1009876544;Maria Gomez;ADMINISTRATIVO;2026-02-15;;02;S02;Sede Sur;maria.jpg
