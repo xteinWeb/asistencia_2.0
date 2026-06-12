@@ -60159,7 +60159,7 @@ n.c.dd();++a7
 n.t9("Procesando ("+a7+"/"+c1.length+"): "+A.n(J.l(l,"nombre"))+" (C.C. "+A.n(J.l(l,"cedula"))+")...")
 p=7
 n.t9("Generando firma facial en el servidor...")
-j=A.cA(A.n(m)+"/api/biometria/vector")
+j=A.cA(A.n(m)+"/api/asistencia/nuevoEmpleado")
 i=A.b9G("POST",j)
 i.x.m(0,"cedula",J.l(l,"cedula"))
 a8=i.y

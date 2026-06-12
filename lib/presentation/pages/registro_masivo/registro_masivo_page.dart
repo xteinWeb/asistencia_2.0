@@ -255,7 +255,7 @@ class _RegistroMasivoPageState extends State<RegistroMasivoPage> {
       try {
         // Step A: Generar Vector Facial mediante el Endpoint de Python
         _addLog('Generando firma facial en el servidor...');
-        final vectorUri = Uri.parse('$baseUrl/api/biometria/vector');
+        final vectorUri = Uri.parse('$baseUrl/api/asistencia/nuevoEmpleado');
         final request = http.MultipartRequest('POST', vectorUri);
         
         request.fields['cedula'] = emp['cedula'];
