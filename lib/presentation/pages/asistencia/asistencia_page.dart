@@ -501,7 +501,7 @@ class _AsistenciaPageState extends State<AsistenciaPage> {
     }
   }
 
-  /// Ejecuta el test de parpadeo (Prueba de Vida activa) con ML Kit en 4 capturas rápidas.
+  /// Ejecuta la prueba de vida (Liveness) detectando el movimiento de cabeza (rotación lateral).
   Future<bool> _ejecutarPruebaDeVida(
     EmpleadoModel empleado,
     double? distancia,
@@ -511,41 +511,40 @@ class _AsistenciaPageState extends State<AsistenciaPage> {
     }
 
     setState(() {
-      _capturedImage =
-          null; // Liberamos la imagen estática de identificación para reactivar el stream en vivo de la cámara
+      _capturedImage = null; // Liberamos la imagen estática para reactivar la cámara
       _procesando = true;
       _state = _AppState(
         procesando: true,
-        mensaje: '¡VALIDANDO VIDA! ¡PARPADEA AHORA!',
+        mensaje: '¡VALIDANDO VIDA! GIRE LA CABEZA A LOS LADOS',
         mensajeColor: AppColors.secondary,
         empleadoNombre: empleado.nombre,
         empleadoCedula: empleado.cedula,
         distancia: distancia,
       );
     });
-    _speak('Por favor, parpadee ahora');
+    _speak('Por favor, gire la cabeza levemente hacia los lados');
 
     List<XFile> rafagaFotos = [];
-    List<double> eyeProbabilities = [];
+    List<double> headYRotations = [];
 
     try {
-      // 1. Ejecutar ráfaga de 6 capturas rápidas para máxima cobertura de parpadeo
-      await Future.delayed(const Duration(milliseconds: 150));
+      // 1. Ejecutar ráfaga de 6 capturas espaciadas para dar tiempo al giro de cabeza
+      await Future.delayed(const Duration(milliseconds: 250));
       rafagaFotos.add(await _cameraController!.takePicture());
 
-      await Future.delayed(const Duration(milliseconds: 150));
+      await Future.delayed(const Duration(milliseconds: 250));
       rafagaFotos.add(await _cameraController!.takePicture());
 
-      await Future.delayed(const Duration(milliseconds: 150));
+      await Future.delayed(const Duration(milliseconds: 250));
       rafagaFotos.add(await _cameraController!.takePicture());
 
-      await Future.delayed(const Duration(milliseconds: 150));
+      await Future.delayed(const Duration(milliseconds: 250));
       rafagaFotos.add(await _cameraController!.takePicture());
 
-      await Future.delayed(const Duration(milliseconds: 150));
+      await Future.delayed(const Duration(milliseconds: 250));
       rafagaFotos.add(await _cameraController!.takePicture());
 
-      await Future.delayed(const Duration(milliseconds: 150));
+      await Future.delayed(const Duration(milliseconds: 250));
       rafagaFotos.add(await _cameraController!.takePicture());
 
       if (mounted) {
@@ -561,58 +560,49 @@ class _AsistenciaPageState extends State<AsistenciaPage> {
         });
       }
 
-      // 2. Procesar cada foto localmente con ML Kit FaceDetector para extraer probabilidad ocular
+      // 2. Procesar cada foto localmente con ML Kit FaceDetector para extraer rotación de la cabeza
       for (final img in rafagaFotos) {
         final inputImage = InputImage.fromFilePath(img.path);
         final faces = await _faceDetector.processImage(inputImage);
 
         if (faces.isNotEmpty) {
           final face = faces.first;
-          final probIzq = face.leftEyeOpenProbability;
-          final probDer = face.rightEyeOpenProbability;
+          final rotY = face.headEulerAngleY; // Ángulo de rotación hacia la izquierda/derecha en grados
 
-          if (probIzq != null && probDer != null) {
-            // El promedio de apertura de ambos ojos
-            eyeProbabilities.add((probIzq + probDer) / 2);
+          if (rotY != null) {
+            headYRotations.add(rotY);
           } else {
-            throw Exception(
-              'El detector facial no pudo clasificar la apertura de ojos. Asegúrese de mirar a la cámara.',
-            );
+            headYRotations.add(0.0);
           }
         } else {
           throw Exception(
-            'Rostro no detectado de forma estable en la ráfaga. Por favor, quédese quieto frente a la cámara.',
+            'Rostro no detectado de forma estable. Por favor, quédese dentro del marco de la cámara.',
           );
         }
       }
 
-      // 3. Evaluar parpadeo analizando la variación (Delta) y valores absolutos
-      double maxVal = 0.0;
-      double minVal = 1.0;
-      for (final val in eyeProbabilities) {
-        if (val > maxVal) maxVal = val;
-        if (val < minVal) minVal = val;
+      // 3. Evaluar variación del ángulo de giro lateral de cabeza
+      double maxRot = -180.0;
+      double minRot = 180.0;
+      for (final rot in headYRotations) {
+        if (rot > maxRot) maxRot = rot;
+        if (rot < minRot) minRot = rot;
       }
 
-      final delta = maxVal - minVal;
+      final deltaRot = maxRot - minRot;
 
-      // Para clasificar como parpadeo legítimo de un ser humano vivo, requerimos:
-      // 1. Que en al menos una captura de la ráfaga los ojos estén abiertos (maxVal >= 0.50)
-      // 2. Que en al menos una captura de la ráfaga los ojos estén parcialmente cerrados/parpadeando (minVal <= 0.50)
-      // 3. Que la variación de transición de parpadeo sea clara (delta >= 0.10)
-      final esHumanoVivo = maxVal >= 0.50 && minVal <= 0.50 && delta >= 0.10;
+      // Requerimos que la variación del giro sea de al menos 10 grados para confirmar movimiento real
+      final esHumanoVivo = deltaRot >= 10.0;
 
-      debugPrint('=== PRUEBA DE VIDA (LIVENESS) ===');
-      debugPrint(
-        'Probabilidades de ojos abiertos en ráfaga: $eyeProbabilities',
-      );
-      debugPrint('Ojos Abiertos Máximo: ${maxVal.toStringAsFixed(3)}');
-      debugPrint('Ojos Cerrados Mínimo: ${minVal.toStringAsFixed(3)}');
-      debugPrint('Delta de parpadeo: ${delta.toStringAsFixed(3)}');
+      debugPrint('=== PRUEBA DE VIDA (MOVIMIENTO DE CABEZA) ===');
+      debugPrint('Rotaciones de cabeza (Grados Y): $headYRotations');
+      debugPrint('Rotación Máxima: ${maxRot.toStringAsFixed(1)}°');
+      debugPrint('Rotación Mínima: ${minRot.toStringAsFixed(1)}°');
+      debugPrint('Diferencia de Giro (Delta): ${deltaRot.toStringAsFixed(1)}°');
       debugPrint('Resultado - ¿Humano Vivo?: $esHumanoVivo');
-      debugPrint('=================================');
+      debugPrint('=============================================');
 
-      // Eliminar fotos temporales de ráfaga para no saturar espacio del móvil
+      // Eliminar fotos temporales de ráfaga
       for (final img in rafagaFotos) {
         try {
           final f = File(img.path);
@@ -628,27 +618,26 @@ class _AsistenciaPageState extends State<AsistenciaPage> {
           _procesando = false;
           _state = _AppState(
             procesando: false,
-            mensaje: 'FALLO DE VIDA: ROSTRO ESTÁTICO DETECTADO.',
+            mensaje: 'FALLO: ROSTRO ESTÁTICO DETECTADO.',
             mensajeColor: AppColors.error,
             empleadoNombre: empleado.nombre,
             empleadoCedula: empleado.cedula,
             distancia: distancia,
           );
         });
-        _speak('Rostro estático detectado. Por favor, parpadee.');
+        _speak('Movimiento no detectado. Por favor, gire la cabeza.');
 
         if (!mounted) return false;
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text(
-              '⚠️ Seguridad: Rostro estático detectado. Por favor, parpadee frente a la cámara.',
+              '⚠️ Seguridad: Gire levemente la cabeza a los lados para marcar asistencia.',
             ),
             backgroundColor: AppColors.error,
             duration: Duration(seconds: 4),
           ),
         );
 
-        // Volver a previsualizar e iniciar flujo tras 4 segundos
         await Future.delayed(const Duration(seconds: 4));
         if (mounted) {
           _cancelarFlujoMarcacion();

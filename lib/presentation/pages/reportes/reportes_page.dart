@@ -118,8 +118,23 @@ class _ReportesPageState extends State<ReportesPage> {
         for (var dateStr in _datesInRange) {
           final currentDate = DateTime.parse(dateStr);
 
-          // Skip if date is before registration date or after contract end
-          if (registrationDate != null && currentDate.isBefore(registrationDate)) {
+          // Find clock-ins/outs
+          final dayRegs = _allRegistros.where((r) => 
+            r.cedula == emp.cedula && 
+            r.fechaHora.startsWith(dateStr)
+          ).toList();
+
+          // Find absence/ausentismo
+          final dayAus = _allAusentismos.firstWhere((a) => 
+            a.cedulaEmpleado == emp.cedula && 
+            a.fecha == dateStr,
+            orElse: () => AusentismoModel(id: '', cedulaEmpleado: '', fecha: '', siglaAusencia: '')
+          );
+
+          final hasRealData = dayRegs.isNotEmpty || (dayAus.id != null && dayAus.id!.isNotEmpty);
+
+          // Skip if date is before registration date or after contract end (unless we have real data)
+          if (!hasRealData && registrationDate != null && currentDate.isBefore(registrationDate)) {
             datesDetails[dateStr] = {
               'estado': 'No Registrado',
               'entrada': '-',
@@ -129,7 +144,7 @@ class _ReportesPageState extends State<ReportesPage> {
             continue;
           }
 
-          if (emp.fechaFinContrato != null && emp.fechaFinContrato!.isNotEmpty) {
+          if (!hasRealData && emp.fechaFinContrato != null && emp.fechaFinContrato!.isNotEmpty) {
             try {
               final finContrato = DateTime.parse(emp.fechaFinContrato!.substring(0, 10));
               if (currentDate.isAfter(finContrato)) {
@@ -146,25 +161,12 @@ class _ReportesPageState extends State<ReportesPage> {
 
           hasAnyActivity = true;
 
-          // Find clock-ins/outs
-          final dayRegs = _allRegistros.where((r) => 
-            r.cedula == emp.cedula && 
-            r.fechaHora.startsWith(dateStr)
-          ).toList();
-
           final checkIn = dayRegs.firstWhere((r) => r.evento.toUpperCase() == 'ENTRADA', orElse: () => RegistroModel(
             id: '', fechaHora: '', cedula: '', evento: '', tipo: '', unidadNegocio: ''
           ));
           final checkOut = dayRegs.firstWhere((r) => r.evento.toUpperCase() == 'SALIDA', orElse: () => RegistroModel(
             id: '', fechaHora: '', cedula: '', evento: '', tipo: '', unidadNegocio: ''
           ));
-
-          // Find absence/ausentismo
-          final dayAus = _allAusentismos.firstWhere((a) => 
-            a.cedulaEmpleado == emp.cedula && 
-            a.fecha == dateStr,
-            orElse: () => AusentismoModel(id: '', cedulaEmpleado: '', fecha: '', siglaAusencia: '')
-          );
 
           String status = 'No Registró';
           String timeIn = '-';
@@ -208,8 +210,8 @@ class _ReportesPageState extends State<ReportesPage> {
           };
         }
 
-        // Only include employees who are active or had contract days in the selected range
-        if (hasAnyActivity) {
+        // Only include employees who are active or had contract days/activity in the selected range
+        if (emp.estado.toUpperCase() == 'ACTIVO' || hasAnyActivity) {
           gridRows.add({
             'cedula': emp.cedula,
             'nombre': emp.nombre,
