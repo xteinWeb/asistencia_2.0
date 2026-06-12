@@ -26,7 +26,6 @@ class Environment {
         return 'http://${uri.host}:8085';
       }
 
-      // Si el host es un nombre de dominio (no una dirección IP numérica),
       // enviamos las peticiones al mismo dominio/puerto (Nginx actuará como proxy inverso en /api).
       if (!RegExp(r'^[0-9.]+$').hasMatch(uri.host)) {
         return '${uri.scheme}://${uri.host}';
