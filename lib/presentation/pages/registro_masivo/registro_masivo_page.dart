@@ -106,7 +106,10 @@ class _RegistroMasivoPageState extends State<RegistroMasivoPage> {
 
       // Leer la fila de cabeceras (fila 0)
       final firstRow = table.rows[0];
-      final headers = firstRow.map((cell) => cell?.value?.toString().trim().toLowerCase() ?? '').toList();
+      final headers = firstRow.map((cell) {
+        if (cell == null || cell.value == null) return '';
+        return cell.value.toString().trim().toLowerCase();
+      }).toList();
 
       final List<Map<String, dynamic>> tempEmployees = [];
       
@@ -114,12 +117,24 @@ class _RegistroMasivoPageState extends State<RegistroMasivoPage> {
         final row = table.rows[i];
         if (row.isEmpty) continue;
 
+        // Comprobamos si la fila completa está vacía
+        bool isRowEmpty = true;
+        for (var cell in row) {
+          if (cell != null && cell.value != null && cell.value.toString().trim().isNotEmpty) {
+            isRowEmpty = false;
+            break;
+          }
+        }
+        if (isRowEmpty) continue;
+
         final Map<String, dynamic> empData = {};
         for (int j = 0; j < headers.length; j++) {
-          if (j < row.length) {
-            empData[headers[j]] = row[j]?.value?.toString().trim() ?? '';
-          } else {
-            empData[headers[j]] = '';
+          if (j < headers.length && headers[j].isNotEmpty) {
+            if (j < row.length && row[j] != null && row[j]!.value != null) {
+              empData[headers[j]] = row[j]!.value.toString().trim();
+            } else {
+              empData[headers[j]] = '';
+            }
           }
         }
 
