@@ -529,17 +529,23 @@ class _AsistenciaPageState extends State<AsistenciaPage> {
     List<double> eyeProbabilities = [];
 
     try {
-      // 1. Ejecutar ráfaga de 4 capturas rápidas para máxima cobertura de parpadeo
-      await Future.delayed(const Duration(milliseconds: 100));
+      // 1. Ejecutar ráfaga de 6 capturas rápidas para máxima cobertura de parpadeo
+      await Future.delayed(const Duration(milliseconds: 150));
       rafagaFotos.add(await _cameraController!.takePicture());
 
-      await Future.delayed(const Duration(milliseconds: 100));
+      await Future.delayed(const Duration(milliseconds: 150));
       rafagaFotos.add(await _cameraController!.takePicture());
 
-      await Future.delayed(const Duration(milliseconds: 100));
+      await Future.delayed(const Duration(milliseconds: 150));
       rafagaFotos.add(await _cameraController!.takePicture());
 
-      await Future.delayed(const Duration(milliseconds: 100));
+      await Future.delayed(const Duration(milliseconds: 150));
+      rafagaFotos.add(await _cameraController!.takePicture());
+
+      await Future.delayed(const Duration(milliseconds: 150));
+      rafagaFotos.add(await _cameraController!.takePicture());
+
+      await Future.delayed(const Duration(milliseconds: 150));
       rafagaFotos.add(await _cameraController!.takePicture());
 
       if (mounted) {
@@ -592,9 +598,9 @@ class _AsistenciaPageState extends State<AsistenciaPage> {
 
       // Para clasificar como parpadeo legítimo de un ser humano vivo, requerimos:
       // 1. Que en al menos una captura de la ráfaga los ojos estén abiertos (maxVal >= 0.50)
-      // 2. Que en al menos una captura de la ráfaga los ojos estén parcialmente cerrados/parpadeando (minVal <= 0.40)
-      // 3. Que la variación de transición de parpadeo sea clara (delta >= 0.15)
-      final esHumanoVivo = maxVal >= 0.50 && minVal <= 0.40 && delta >= 0.15;
+      // 2. Que en al menos una captura de la ráfaga los ojos estén parcialmente cerrados/parpadeando (minVal <= 0.50)
+      // 3. Que la variación de transición de parpadeo sea clara (delta >= 0.10)
+      final esHumanoVivo = maxVal >= 0.50 && minVal <= 0.50 && delta >= 0.10;
 
       debugPrint('=== PRUEBA DE VIDA (LIVENESS) ===');
       debugPrint(
