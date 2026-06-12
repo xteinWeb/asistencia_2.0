@@ -3,7 +3,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
-import 'package:csv/csv.dart';
+import 'package:excel/excel.dart' hide Border;
 import 'package:http/http.dart' as http;
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
@@ -24,7 +24,7 @@ class RegistroMasivoPage extends StatefulWidget {
 class _RegistroMasivoPageState extends State<RegistroMasivoPage> {
   final DatabaseHelper _dbHelper = DatabaseHelper();
   
-  PlatformFile? _csvFile;
+  PlatformFile? _excelFile;
   List<PlatformFile> _selectedPhotos = [];
   List<Map<String, dynamic>> _parsedEmployees = [];
   
@@ -40,29 +40,29 @@ class _RegistroMasivoPageState extends State<RegistroMasivoPage> {
   // Step indicator
   int _currentStep = 0; // 0: Select, 1: Preview, 2: Process
 
-  Future<void> _pickCSVFile() async {
+  Future<void> _pickExcelFile() async {
     try {
-      final result = await FilePicker.pickFiles(
+      final result = await FilePicker.platform.pickFiles(
         type: FileType.custom,
-        allowedExtensions: ['csv'],
+        allowedExtensions: ['xlsx', 'xls'],
       );
 
       if (result != null && result.files.isNotEmpty) {
         setState(() {
-          _csvFile = result.files.first;
+          _excelFile = result.files.first;
           _parsedEmployees.clear();
           if (_currentStep == 1) _currentStep = 0;
         });
-        await _parseCSV();
+        await _parseExcel();
       }
     } catch (e) {
-      _showSnackBar('Error al seleccionar CSV: $e', isError: true);
+      _showSnackBar('Error al seleccionar Excel: $e', isError: true);
     }
   }
 
   Future<void> _pickPhotos() async {
     try {
-      final result = await FilePicker.pickFiles(
+      final result = await FilePicker.platform.pickFiles(
         type: FileType.image,
         allowMultiple: true,
       );
@@ -78,54 +78,49 @@ class _RegistroMasivoPageState extends State<RegistroMasivoPage> {
     }
   }
 
-  String _decodeBytes(List<int> bytes) {
-    try {
-      return const Utf8Decoder().convert(bytes);
-    } catch (_) {
-      try {
-        return const Latin1Decoder().convert(bytes);
-      } catch (_) {
-        return String.fromCharCodes(bytes);
-      }
-    }
-  }
-
-  Future<void> _parseCSV() async {
-    if (_csvFile == null) return;
+  Future<void> _parseExcel() async {
+    if (_excelFile == null) return;
     
     try {
       List<int> bytes;
       if (kIsWeb) {
-        bytes = _csvFile!.bytes!;
+        bytes = _excelFile!.bytes!;
       } else {
-        bytes = await File(_csvFile!.path!).readAsBytes();
+        bytes = await File(_excelFile!.path!).readAsBytes();
       }
 
-      final csvString = _decodeBytes(bytes);
-      final delimiter = csvString.contains(';') ? ';' : ',';
-
-      final List<List<dynamic>> csvRows = Csv(
-        fieldDelimiter: delimiter,
-        autoDetect: false,
-        dynamicTyping: false,
-      ).decode(csvString);
-
-      if (csvRows.isEmpty) {
-        _showSnackBar('El archivo CSV está vacío.', isError: true);
+      final excel = Excel.decodeBytes(bytes);
+      if (excel.tables.keys.isEmpty) {
+        _showSnackBar('El archivo Excel no contiene hojas.', isError: true);
         return;
       }
 
-      final headers = csvRows.first.map((h) => h.toString().trim().toLowerCase()).toList();
-      
+      // Tomamos la primera hoja del Excel
+      final sheetName = excel.tables.keys.first;
+      final table = excel.tables[sheetName]!;
+
+      if (table.maxRows <= 1) {
+        _showSnackBar('El archivo Excel está vacío o no contiene filas de datos.', isError: true);
+        return;
+      }
+
+      // Leer la fila de cabeceras (fila 0)
+      final firstRow = table.rows[0];
+      final headers = firstRow.map((cell) => cell?.value?.toString().trim().toLowerCase() ?? '').toList();
+
       final List<Map<String, dynamic>> tempEmployees = [];
       
-      for (int i = 1; i < csvRows.length; i++) {
-        final row = csvRows[i];
-        if (row.length < headers.length) continue;
+      for (int i = 1; i < table.maxRows; i++) {
+        final row = table.rows[i];
+        if (row.isEmpty) continue;
 
         final Map<String, dynamic> empData = {};
         for (int j = 0; j < headers.length; j++) {
-          empData[headers[j]] = row[j].toString().trim();
+          if (j < row.length) {
+            empData[headers[j]] = row[j]?.value?.toString().trim() ?? '';
+          } else {
+            empData[headers[j]] = '';
+          }
         }
 
         final cedula = empData['cedula'] ?? '';
@@ -153,12 +148,14 @@ class _RegistroMasivoPageState extends State<RegistroMasivoPage> {
         _parsedEmployees = tempEmployees;
         if (_parsedEmployees.isNotEmpty) {
           _currentStep = 1; // Avanzar a vista previa
+        } else {
+          _showSnackBar('No se encontraron registros válidos de colaboradores.', isError: true);
         }
       });
 
       _matchPhotos();
     } catch (e) {
-      _showSnackBar('Error al procesar el archivo CSV: $e', isError: true);
+      _showSnackBar('Error al procesar el archivo Excel: $e', isError: true);
     }
   }
 
@@ -488,24 +485,24 @@ class _RegistroMasivoPageState extends State<RegistroMasivoPage> {
                 ),
                 const SizedBox(height: 12),
                 const Text(
-                  '1. Prepare un archivo CSV delimitado por comas (,) o punto y coma (;) con las siguientes columnas:\n'
-                  '   cedula;nombre;tipo;fecha_inicio;fecha_fin;horario_id;id_seccion;sede_principal;foto\n\n'
+                  '1. Prepare un archivo Excel (.xlsx o .xls) con las siguientes columnas en la primera fila:\n'
+                  '   cedula | nombre | tipo | fecha_inicio | fecha_fin | horario_id | id_seccion | sede_principal | foto\n\n'
                   '2. El campo "foto" debe contener el nombre de la foto de la persona (ej. juan.jpg).\n\n'
-                  '3. Suba el archivo CSV y luego seleccione las fotos asociadas.',
+                  '3. Suba el archivo Excel y luego seleccione las fotos asociadas.',
                   style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
                 ),
                 const SizedBox(height: 24),
 
-                // CSV Picker
+                // Excel Picker
                 OutlinedButton.icon(
-                  onPressed: _pickCSVFile,
-                  icon: Icon(_csvFile != null ? Icons.check_circle : Icons.insert_drive_file, 
-                    color: _csvFile != null ? AppColors.success : AppColors.primary),
-                  label: Text(_csvFile != null ? _csvFile!.name : 'Seleccionar Archivo CSV',
-                    style: TextStyle(color: _csvFile != null ? AppColors.success : AppColors.primary)),
+                  onPressed: _pickExcelFile,
+                  icon: Icon(_excelFile != null ? Icons.check_circle : Icons.insert_drive_file, 
+                    color: _excelFile != null ? AppColors.success : AppColors.primary),
+                  label: Text(_excelFile != null ? _excelFile!.name : 'Seleccionar Archivo Excel',
+                    style: TextStyle(color: _excelFile != null ? AppColors.success : AppColors.primary)),
                   style: OutlinedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    side: BorderSide(color: _csvFile != null ? AppColors.success : AppColors.primary),
+                     padding: const EdgeInsets.symmetric(vertical: 16),
+                     side: BorderSide(color: _excelFile != null ? AppColors.success : AppColors.primary),
                   ),
                 ),
                 const SizedBox(height: 16),
@@ -547,7 +544,7 @@ class _RegistroMasivoPageState extends State<RegistroMasivoPage> {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceAround,
               children: [
-                _buildSummaryText('Total en CSV', '${_parsedEmployees.length}', Colors.black),
+                _buildSummaryText('Total en Excel', '${_parsedEmployees.length}', Colors.black),
                 _buildSummaryText('Fotos Listas', '$matchedCount', AppColors.success),
                 _buildSummaryText('Faltan Fotos', '$missingCount', AppColors.error),
               ],

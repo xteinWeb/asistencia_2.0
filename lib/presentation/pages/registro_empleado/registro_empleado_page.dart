@@ -56,6 +56,9 @@ class _RegistroEmpleadoPageState extends State<RegistroEmpleadoPage> {
 
   String? _selectedTipo = 'OPERATIVO'; // Default is OPERATIVO
 
+  String? _selectedSede;
+  final List<String> _sedes = const ['GALAPA', 'REBOLO', 'CALLE 28', 'CALLE 39'];
+
   // Modos de enrolamiento: REAL (con API) o SIMULADO (local offline)
   bool _modoReal = true;
 
@@ -262,7 +265,7 @@ class _RegistroEmpleadoPageState extends State<RegistroEmpleadoPage> {
           fechaFinContrato: _fechaFinCtrl.text.isNotEmpty
               ? _fechaFinCtrl.text
               : null,
-          sedePrincipal: null,
+          sedePrincipal: _selectedSede,
           idSeccion: _selectedTipo == 'OPERATIVO' ? _selectedSeccionId : null,
           tipo: _selectedTipo,
         );
@@ -443,7 +446,7 @@ class _RegistroEmpleadoPageState extends State<RegistroEmpleadoPage> {
         fechaFinContrato: _fechaFinCtrl.text.isNotEmpty
             ? _fechaFinCtrl.text
             : null,
-        sedePrincipal: null,
+        sedePrincipal: _selectedSede,
         idSeccion: _selectedTipo == 'OPERATIVO' ? _selectedSeccionId : null,
         tipo: _selectedTipo,
         fechaRegistro: DateTime.now().toIso8601String(),
@@ -652,6 +655,28 @@ class _RegistroEmpleadoPageState extends State<RegistroEmpleadoPage> {
                             ),
                           ),
                       ],
+
+                      const SizedBox(height: 16),
+
+                      // Sede Principal
+                      DropdownButtonFormField<String>(
+                        value: _selectedSede,
+                        decoration: const InputDecoration(
+                          labelText: 'Sede Principal (Opcional)',
+                          prefixIcon: Icon(Icons.business_outlined),
+                        ),
+                        items: _sedes.map((s) {
+                          return DropdownMenuItem<String>(
+                            value: s,
+                            child: Text(s),
+                          );
+                        }).toList(),
+                        onChanged: (val) {
+                          setState(() {
+                            _selectedSede = val;
+                          });
+                        },
+                      ),
 
                       const SizedBox(height: 16),
 
