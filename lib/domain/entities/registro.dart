@@ -6,6 +6,7 @@ class Registro {
   final String? duracion;
   final String tipo;            // LABORAL / PERMISO / ALMUERZO / RETARDO / EXTRAS
   final String unidadNegocio;
+  final String metodoRegistro;  // FACIAL / CEDULA
   final bool sincronizado;
 
   const Registro({
@@ -16,10 +17,11 @@ class Registro {
     this.duracion,
     required this.tipo,
     required this.unidadNegocio,
+    this.metodoRegistro = 'FACIAL',
     this.sincronizado = false,
   });
 
   @override
   String toString() =>
-      'Registro(cedula: $cedula, evento: $evento, tipo: $tipo, $fechaHora)';
+      'Registro(cedula: $cedula, evento: $evento, tipo: $tipo, metodo: $metodoRegistro, $fechaHora)';
 }

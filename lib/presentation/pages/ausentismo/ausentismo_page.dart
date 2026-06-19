@@ -18,6 +18,7 @@ import '../../../data/models/empleado_model.dart';
 import '../../../data/models/registro_model.dart';
 import '../../../data/models/ausentismo_model.dart';
 import '../../../data/models/permiso_model.dart';
+import '../../../data/models/incapacidad_model.dart';
 import '../../../services/sync_service.dart';
 
 enum _FilterTab { todos, asistieron, ausentes, validados }
@@ -62,6 +63,7 @@ class _AusentismoPageState extends State<AusentismoPage> {
   List<AusentismoModel> _ausentismosDia = [];
   List<Map<String, String>> _tiposAusencia = [];
   Map<String, PermisoModel> _permisosDiaMap = {};
+  Map<String, IncapacidadModel> _incapacidadesDiaMap = {};
 
   // Estado local temporal en memoria para edición en lote
   Map<String, String> _justificacionesTemporales = {};
@@ -147,12 +149,26 @@ class _AusentismoPageState extends State<AusentismoPage> {
         for (final p in permisosDia) p.cedulaEmpleado: p,
       };
 
+      // 6. Obtener todas las incapacidades y filtrar para este día
+      final allIncapacidades = await _db.getAllIncapacidades();
+      final incapacidadesDia = allIncapacidades.where((i) {
+        if (i.fechaInicio.length < 10 || i.fechaFinal.length < 10) return false;
+        final start = i.fechaInicio.substring(0, 10);
+        final end = i.fechaFinal.substring(0, 10);
+        return start.compareTo(targetDateStr) <= 0 &&
+            end.compareTo(targetDateStr) >= 0;
+      }).toList();
+      final Map<String, IncapacidadModel> incapacidadesDiaMap = {
+        for (final i in incapacidadesDia) i.cedulaEmpleado: i,
+      };
+
       setState(() {
         _empleados = activeEmps;
         _registrosDia = regsDia;
         _ausentismosDia = ausents;
         _tiposAusencia = types;
         _permisosDiaMap = permisosDiaMap;
+        _incapacidadesDiaMap = incapacidadesDiaMap;
 
         // Inicializar el estado en memoria con las novedades guardadas de la BD
         _justificacionesTemporales = {
@@ -618,10 +634,11 @@ class _AusentismoPageState extends State<AusentismoPage> {
         (r) => r.cedula == emp.cedula && r.evento == AppConstants.eventoEntrada,
       );
 
-      // 3. Determinar si tiene justificación en el estado temporal de memoria o permiso
+      // 3. Determinar si tiene justificación en el estado temporal de memoria, permiso o incapacidad
       final currentSigla = _justificacionesTemporales[emp.cedula];
       final tienePermiso = _permisosDiaMap.containsKey(emp.cedula);
-      final hasValidation = currentSigla != null || tienePermiso;
+      final tieneIncapacidad = _incapacidadesDiaMap.containsKey(emp.cedula);
+      final hasValidation = currentSigla != null || tienePermiso || tieneIncapacidad;
 
       // 4. Filtrar por pestaña
       switch (_selectedTab) {
@@ -630,7 +647,7 @@ class _AusentismoPageState extends State<AusentismoPage> {
         case _FilterTab.asistieron:
           return isPresent;
         case _FilterTab.ausentes:
-          return !isPresent && currentSigla != 'PE' && !tienePermiso;
+          return !isPresent && currentSigla != 'PE' && !tienePermiso && !tieneIncapacidad;
         case _FilterTab.validados:
           return hasValidation;
       }
@@ -653,7 +670,8 @@ class _AusentismoPageState extends State<AusentismoPage> {
       );
       final currentSigla = _justificacionesTemporales[emp.cedula];
       final tienePermiso = _permisosDiaMap.containsKey(emp.cedula);
-      return !isPresent && currentSigla != 'PE' && !tienePermiso;
+      final tieneIncapacidad = _incapacidadesDiaMap.containsKey(emp.cedula);
+      return !isPresent && currentSigla != 'PE' && !tienePermiso && !tieneIncapacidad;
     }).length;
 
     final validatedCount = _empleados.where((emp) {
@@ -662,7 +680,8 @@ class _AusentismoPageState extends State<AusentismoPage> {
       );
       final currentSigla = _justificacionesTemporales[emp.cedula];
       final tienePermiso = _permisosDiaMap.containsKey(emp.cedula);
-      return isAbsent && (currentSigla != null || tienePermiso);
+      final tieneIncapacidad = _incapacidadesDiaMap.containsKey(emp.cedula);
+      return isAbsent && (currentSigla != null || tienePermiso || tieneIncapacidad);
     }).length;
 
     final presentPercent = totalCount > 0
@@ -1278,6 +1297,12 @@ class _AusentismoPageState extends State<AusentismoPage> {
       statusTextColor = const Color(0xFF7B1FA2); // purple
       statusText = 'EN PERMISO ($tipoPermiso)';
       statusIcon = Icons.card_membership;
+    } else if (_incapacidadesDiaMap.containsKey(emp.cedula)) {
+      final tipoIncapacidad = _incapacidadesDiaMap[emp.cedula]!.tipo;
+      statusBgColor = const Color(0xFFFCE4EC); // light pink/red
+      statusTextColor = const Color(0xFFC2185B); // dark pink
+      statusText = 'INCAPACITADO ($tipoIncapacidad)';
+      statusIcon = Icons.medical_services_rounded;
     } else if (currentSigla != null) {
       statusBgColor = AppColors.warningLight;
       statusTextColor = AppColors.warning;

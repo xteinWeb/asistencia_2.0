@@ -11,6 +11,7 @@ import '../data/models/empleado_model.dart';
 import '../data/models/horario_model.dart';
 import '../data/models/usuario_model.dart';
 import '../data/models/permiso_model.dart';
+import '../data/models/incapacidad_model.dart';
 import '../data/models/registro_model.dart';
 import '../data/models/ausentismo_model.dart';
 
@@ -103,6 +104,9 @@ class SyncService {
       final pullP = await _pullPermisos(baseUrl);
       errors.addAll(pullP);
 
+      final pullI = await _pullIncapacidades(baseUrl);
+      errors.addAll(pullI);
+
       final pullR = await _pullRegistros(baseUrl);
       errors.addAll(pullR);
 
@@ -186,6 +190,41 @@ class SyncService {
       }
     } catch (e) {
       errors.add('Excepción sync permisos: $e');
+    }
+
+    return (synced, errors);
+  }
+
+  Future<(int, List<String>)> _syncIncapacidades(String baseUrl) async {
+    final pendientes = await _db.getIncapacidadesPendientes();
+    if (pendientes.isEmpty) return (0, <String>[]);
+
+    final errors = <String>[];
+    int synced = 0;
+
+    try {
+      final uri = Uri.parse('$baseUrl/api/sync/incapacidades');
+      final body = jsonEncode(pendientes.map((p) => p.toMap()).toList());
+      final response = await http
+          .post(uri,
+              headers: {'Content-Type': 'application/json'}, body: body)
+          .timeout(const Duration(milliseconds: ApiConstants.receiveTimeoutMs));
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        for (final p in pendientes) {
+          if (p.id != null) {
+            await _db.marcarIncapacidadSincronizada(p.id!);
+            synced++;
+          }
+        }
+      } else {
+        // No agregamos como error fatal si la ruta no existe (404) para evitar alarmar al usuario si el servidor no tiene soporte web aún.
+        if (response.statusCode != 404) {
+          errors.add('Error sync incapacidades: ${response.statusCode}');
+        }
+      }
+    } catch (e) {
+      errors.add('Excepción sync incapacidades: $e');
     }
 
     return (synced, errors);
@@ -334,6 +373,32 @@ class SyncService {
       }
     } catch (e) {
       errors.add('Excepción pull permisos: $e');
+    }
+    return errors;
+  }
+
+  Future<List<String>> _pullIncapacidades(String baseUrl) async {
+    final errors = <String>[];
+    try {
+      final uri = Uri.parse('$baseUrl/api/sync/incapacidades');
+      final response = await http.get(uri).timeout(const Duration(milliseconds: ApiConstants.receiveTimeoutMs));
+
+      if (response.statusCode == 200) {
+        final body = jsonDecode(response.body);
+        if (body['success'] == true) {
+          final data = body['data'] as List;
+          for (final item in data) {
+            final incapacidad = IncapacidadModel.fromJson(item).copyWith(sincronizado: true);
+            await _db.insertIncapacidad(incapacidad);
+          }
+        }
+      } else {
+        if (response.statusCode != 404) {
+          errors.add('Error pull incapacidades: ${response.statusCode}');
+        }
+      }
+    } catch (e) {
+      errors.add('Excepción pull incapacidades: $e');
     }
     return errors;
   }

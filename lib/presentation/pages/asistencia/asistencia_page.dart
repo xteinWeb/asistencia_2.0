@@ -65,7 +65,8 @@ class _AsistenciaPageState extends State<AsistenciaPage> {
   double? _distanciaMatch;
   List<RegistroModel> _registrosHoy = [];
   bool _mostrarPanelSeleccion = false;
-  bool _permitirManual = false;
+  bool _permitirManual = true;
+  bool _esMarcadoCedula = false;
 
   // Detector de caras de Google ML Kit para Prueba de Vida (Liveness)
   late final FaceDetector _faceDetector;
@@ -138,7 +139,7 @@ class _AsistenciaPageState extends State<AsistenciaPage> {
       });
 
       final db = DatabaseHelper();
-      final permitir = await db.getConfig(DbConstants.cfgPermitirManual) ?? '0';
+      final permitir = await db.getConfig(DbConstants.cfgPermitirManual) ?? '1';
       setState(() {
         _permitirManual = permitir == '1';
       });
@@ -239,6 +240,7 @@ class _AsistenciaPageState extends State<AsistenciaPage> {
       _empleadoIdentificado = null;
       _distanciaMatch = null;
       _mostrarPanelSeleccion = false;
+      _esMarcadoCedula = false;
       _state = const _AppState(
         procesando: true,
         mensaje: 'Capturando rostro...',
@@ -285,6 +287,12 @@ class _AsistenciaPageState extends State<AsistenciaPage> {
 
       if (match == null) {
         throw Exception('Empleado no reconocido.');
+      }
+
+      final db = DatabaseHelper();
+      final incapacidad = await db.getIncapacidadActivaByCedula(match.empleado.cedula);
+      if (incapacidad != null) {
+        throw Exception('El colaborador tiene una incapacidad activa registrada hoy.');
       }
 
       // 4. Cargar historial de hoy
@@ -351,70 +359,126 @@ class _AsistenciaPageState extends State<AsistenciaPage> {
   }
 
   Future<void> _mostrarDialogoMarcacionOffline() async {
-    final controller = TextEditingController();
+    final cedulaController = TextEditingController();
+    final passwordController = TextEditingController();
     final formKey = GlobalKey<FormState>();
+    bool obscurePassword = true;
 
     await showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: AppColors.primaryLight,
-        title: const Text(
-          'Marcación Offline',
-          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-        ),
-        content: Form(
-          key: formKey,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Text(
-                'Ingresa tu número de Cédula para marcar asistencia de forma offline:',
-                style: TextStyle(color: Colors.white70, fontSize: 13),
-              ),
-              const SizedBox(height: 16),
-              TextFormField(
-                controller: controller,
-                keyboardType: TextInputType.number,
-                style: const TextStyle(color: Colors.black),
-                decoration: const InputDecoration(
-                  labelText: 'Número de Cédula',
-                  labelStyle: TextStyle(color: Colors.black),
-                  prefixIcon: Icon(Icons.badge_outlined, color: Colors.black),
-                  enabledBorder: OutlineInputBorder(
-                    borderSide: BorderSide(color: Colors.white24),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderSide: BorderSide(color: AppColors.secondary),
-                  ),
+      builder: (context) => StatefulBuilder(
+        builder: (context, setStateDialog) => AlertDialog(
+          backgroundColor: AppColors.primaryLight,
+          title: const Text(
+            'Marcación Offline',
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+          ),
+          content: Form(
+            key: formKey,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text(
+                  'Ingresa tu número de Cédula y la contraseña del operador logueado para marcar asistencia:',
+                  style: TextStyle(color: Colors.white70, fontSize: 13),
                 ),
-                validator: (v) =>
-                    v == null || v.trim().isEmpty ? 'Ingresa la cédula' : null,
+                const SizedBox(height: 16),
+                TextFormField(
+                  controller: cedulaController,
+                  keyboardType: TextInputType.number,
+                  style: const TextStyle(color: Colors.black),
+                  decoration: const InputDecoration(
+                    labelText: 'Número de Cédula',
+                    labelStyle: TextStyle(color: Colors.black),
+                    prefixIcon: Icon(Icons.badge_outlined, color: Colors.black),
+                    enabledBorder: OutlineInputBorder(
+                      borderSide: BorderSide(color: Colors.white24),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderSide: BorderSide(color: AppColors.secondary),
+                    ),
+                  ),
+                  validator: (v) =>
+                      v == null || v.trim().isEmpty ? 'Ingresa la cédula' : null,
+                ),
+                const SizedBox(height: 16),
+                TextFormField(
+                  controller: passwordController,
+                  obscureText: obscurePassword,
+                  style: const TextStyle(color: Colors.black),
+                  decoration: InputDecoration(
+                    labelText: 'Contraseña del Operador',
+                    labelStyle: const TextStyle(color: Colors.black),
+                    prefixIcon: const Icon(Icons.lock_outline, color: Colors.black),
+                    suffixIcon: IconButton(
+                      icon: Icon(
+                        obscurePassword ? Icons.visibility_off : Icons.visibility,
+                        color: Colors.black,
+                      ),
+                      onPressed: () {
+                        setStateDialog(() {
+                          obscurePassword = !obscurePassword;
+                        });
+                      },
+                    ),
+                    enabledBorder: const OutlineInputBorder(
+                      borderSide: BorderSide(color: Colors.white24),
+                    ),
+                    focusedBorder: const OutlineInputBorder(
+                      borderSide: BorderSide(color: AppColors.secondary),
+                    ),
+                  ),
+                  validator: (v) =>
+                      v == null || v.isEmpty ? 'Ingresa la contraseña' : null,
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text(
+                'Cancelar',
+                style: TextStyle(color: Colors.white54),
               ),
-            ],
-          ),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.secondary,
+              ),
+              onPressed: () async {
+                if (formKey.currentState!.validate()) {
+                  final cedula = cedulaController.text.trim();
+                  final pass = passwordController.text;
+
+                  // Verificar contraseña del operador logueado
+                  final db = DatabaseHelper();
+                  final prefs = await SharedPreferences.getInstance();
+                  final operatorUser = prefs.getString('user_name') ?? '';
+
+                  final user = await db.getUsuario(operatorUser, pass);
+                  if (user == null) {
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Contraseña de operador incorrecta.'),
+                          backgroundColor: AppColors.error,
+                        ),
+                      );
+                    }
+                    return;
+                  }
+
+                  if (context.mounted) {
+                    Navigator.pop(context); // Cerrar diálogo
+                    await _identificarEmpleadoOffline(cedula);
+                  }
+                }
+              },
+              child: const Text('Aceptar', style: TextStyle(color: Colors.white)),
+            ),
+          ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text(
-              'Cancelar',
-              style: TextStyle(color: Colors.white54),
-            ),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppColors.secondary,
-            ),
-            onPressed: () async {
-              if (formKey.currentState!.validate()) {
-                final cedula = controller.text.trim();
-                Navigator.pop(context); // Cerrar diálogo
-                await _identificarEmpleadoOffline(cedula);
-              }
-            },
-            child: const Text('Aceptar', style: TextStyle(color: Colors.white)),
-          ),
-        ],
       ),
     );
   }
@@ -426,6 +490,7 @@ class _AsistenciaPageState extends State<AsistenciaPage> {
       _empleadoIdentificado = null;
       _distanciaMatch = null;
       _mostrarPanelSeleccion = false;
+      _esMarcadoCedula = true;
       _state = const _AppState(
         procesando: true,
         mensaje: 'Verificando cédula local...',
@@ -447,13 +512,15 @@ class _AsistenciaPageState extends State<AsistenciaPage> {
         );
       }
 
+      final incapacidad = await db.getIncapacidadActivaByCedula(cedula);
+      if (incapacidad != null) {
+        throw Exception('El colaborador tiene una incapacidad activa registrada hoy.');
+      }
+
       final useCase = MarcarAsistenciaUseCase();
       final registrosHoy = await useCase.getRegistrosDeHoy(cedula);
 
-      // --- Ejecutar prueba de vida (Liveness) inmediatamente después de verificar cédula ---
-      final pasoLiveness = await _ejecutarPruebaDeVida(empleado, null);
-      if (!pasoLiveness) return;
-
+      // --- Para marcación por cédula, omitimos la prueba de vida (Liveness) y pasamos directo ---
       if (mounted) {
         setState(() {
           _procesando = false;
@@ -740,6 +807,7 @@ class _AsistenciaPageState extends State<AsistenciaPage> {
         empleado: _empleadoIdentificado!,
         tipoSeleccionado: tipoSeleccionado,
         distancia: _distanciaMatch,
+        metodoRegistro: _esMarcadoCedula ? 'CEDULA' : 'FACIAL',
       );
 
       if (!mounted) return;

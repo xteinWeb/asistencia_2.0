@@ -24,16 +24,40 @@ class MarcarAsistenciaUseCase {
 
     final all = await _db.getAllEmpleados();
     final empleados = all.where((e) => e.estado == 'ACTIVO').toList();
-    if (empleados.isEmpty) return null;
+    if (empleados.isEmpty) {
+      print('[Biometria] No hay empleados ACTIVOS registrados localmente.');
+      return null;
+    }
 
     final umbralStr = await _db.getConfig('umbral_facial') ?? '0.6';
     final umbral = double.tryParse(umbralStr) ?? AppConstants.faceMatchThreshold;
     
+    print('[Biometria] Comparando rostro contra ${empleados.length} empleados activos (Umbral Máximo Distancia: $umbral)...');
+    
+    // Comparar e imprimir diagnósticos de todos los empleados
+    for (final e in empleados) {
+      if (e.mapaVectorFoto.isEmpty) {
+        print('  - ${e.nombre} (${e.cedula}): Sin vector registrado.');
+        continue;
+      }
+      final dist = FaceMatcher.euclideanDistance(vectorDetectado, e.mapaVectorFoto);
+      final sim = FaceMatcher.similarityPercent(dist, threshold: umbral);
+      print('  - Comparación con ${e.nombre} (${e.cedula}) -> Distancia: ${dist.toStringAsFixed(4)} (Similitud: ${sim.toStringAsFixed(2)}%)');
+    }
+
     final vectors = empleados.map((e) => e.mapaVectorFoto).toList();
     final match = FaceMatcher.findBestMatch(vectorDetectado, vectors, threshold: umbral);
 
-    if (match == null) return null;
-    return (empleado: empleados[match.index], distancia: match.distance);
+    if (match == null) {
+      print('[Biometria] RESULTADO: Ningún empleado superó el umbral de coincidencia.');
+      return null;
+    }
+    
+    final empMatch = empleados[match.index];
+    final matchSim = FaceMatcher.similarityPercent(match.distance, threshold: umbral);
+    print('[Biometria] RESULTADO: Match encontrado con ${empMatch.nombre} (${empMatch.cedula}) - Distancia: ${match.distance.toStringAsFixed(4)} (Similitud: ${matchSim.toStringAsFixed(2)}%)');
+    
+    return (empleado: empMatch, distancia: match.distance);
   }
 
   /// Recupera todos los registros de asistencia del empleado para el día de hoy.
@@ -49,6 +73,7 @@ class MarcarAsistenciaUseCase {
     required EmpleadoModel empleado,
     required TipoRegistro tipoSeleccionado,
     double? distancia,
+    String metodoRegistro = 'FACIAL',
   }) async {
     final ahora = DateTime.now();
     final registrosHoy = await getRegistrosDeHoy(empleado.cedula);
@@ -328,6 +353,7 @@ class MarcarAsistenciaUseCase {
       duracion: duracionFinal,
       tipo: tipoFinal,
       unidadNegocio: unidad,
+      metodoRegistro: metodoRegistro,
       sincronizado: false,
     );
 

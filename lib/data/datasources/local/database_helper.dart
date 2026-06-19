@@ -18,6 +18,7 @@ import '../../models/usuario_model.dart';
 import '../../models/permiso_model.dart';
 import '../../models/configuracion_model.dart';
 import '../../models/ausentismo_model.dart';
+import '../../models/incapacidad_model.dart';
 
 class DatabaseHelper {
   static final DatabaseHelper _instance = DatabaseHelper._internal();
@@ -74,14 +75,24 @@ class DatabaseHelper {
         )
       ''');
 
+      await db.execute('''
+        DELETE FROM incapacidades_asistencia 
+        WHERE rowid NOT IN (
+          SELECT MIN(rowid) 
+          FROM incapacidades_asistencia 
+          GROUP BY LOWER(id)
+        )
+      ''');
+
       await db.execute('UPDATE registros SET id = LOWER(id)');
       await db.execute('UPDATE permisos SET id = LOWER(id)');
+      await db.execute('UPDATE incapacidades_asistencia SET id = LOWER(id)');
       debugPrint(
         '[SQLite] Normalización de base de datos y eliminación de duplicados completada con éxito.',
       );
     } catch (e) {
       debugPrint(
-        'Error al normalizar e integrar UUIDs de registros/permisos: $e',
+        'Error al normalizar e integrar UUIDs de registros/permisos/incapacidades: $e',
       );
     }
 
@@ -179,6 +190,7 @@ class DatabaseHelper {
         duracion        TEXT,
         tipo            TEXT NOT NULL,
         unidad_negocio  TEXT NOT NULL,
+        metodo_registro TEXT DEFAULT 'FACIAL',
         sincronizado    INTEGER NOT NULL DEFAULT 0,
         FOREIGN KEY (cedula) REFERENCES ${DbConstants.tableEmpleados}(cedula)
       )
@@ -186,6 +198,21 @@ class DatabaseHelper {
 
     await db.execute('''
       CREATE TABLE ${DbConstants.tablePermisos} (
+        id                   TEXT PRIMARY KEY,
+        usuario_registrador  TEXT NOT NULL,
+        cedula_empleado      TEXT NOT NULL,
+        fecha_hora           TEXT NOT NULL,
+        tipo                 TEXT NOT NULL,
+        fecha_inicio         TEXT NOT NULL,
+        fecha_final          TEXT NOT NULL,
+        observacion          TEXT,
+        sincronizado         INTEGER NOT NULL DEFAULT 0,
+        FOREIGN KEY (cedula_empleado) REFERENCES ${DbConstants.tableEmpleados}(cedula)
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE ${DbConstants.tableIncapacidades} (
         id                   TEXT PRIMARY KEY,
         usuario_registrador  TEXT NOT NULL,
         cedula_empleado      TEXT NOT NULL,
@@ -416,6 +443,35 @@ class DatabaseHelper {
         );
       } catch (e) {
         debugPrint('Error al agregar columna fecha_registro en SQLite: $e');
+      }
+    }
+    if (oldVersion < 12) {
+      try {
+        await db.execute('''
+          CREATE TABLE ${DbConstants.tableIncapacidades} (
+            id                   TEXT PRIMARY KEY,
+            usuario_registrador  TEXT NOT NULL,
+            cedula_empleado      TEXT NOT NULL,
+            fecha_hora           TEXT NOT NULL,
+            tipo                 TEXT NOT NULL,
+            fecha_inicio         TEXT NOT NULL,
+            fecha_final          TEXT NOT NULL,
+            observacion          TEXT,
+            sincronizado         INTEGER NOT NULL DEFAULT 0,
+            FOREIGN KEY (cedula_empleado) REFERENCES ${DbConstants.tableEmpleados}(cedula)
+          )
+        ''');
+      } catch (e) {
+        debugPrint('Error al crear tabla incapacidades_asistencia en SQLite: $e');
+      }
+    }
+    if (oldVersion < 13) {
+      try {
+        await db.execute(
+          "ALTER TABLE ${DbConstants.tableRegistros} ADD COLUMN metodo_registro TEXT DEFAULT 'FACIAL'",
+        );
+      } catch (e) {
+        debugPrint('Error al agregar columna metodo_registro en SQLite: $e');
       }
     }
   }
@@ -1012,6 +1068,141 @@ class DatabaseHelper {
     final db = await database;
     return db.update(
       DbConstants.tablePermisos,
+      {'sincronizado': 1},
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
+  // ─── INCAPACIDADES ────────────────────────────────────────────────────────
+
+  Future<int> insertIncapacidad(IncapacidadModel incapacidad) async {
+    final finalIncapacidad = incapacidad.id != null
+        ? incapacidad
+        : incapacidad.copyWith(id: const Uuid().v4());
+
+    if (kIsWeb) {
+      final baseUrl =
+          await getConfig(DbConstants.cfgUrlApi) ?? ApiConstants.defaultBaseUrl;
+      final response = await http.post(
+        Uri.parse('$baseUrl/api/sync/incapacidades'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode([finalIncapacidad.copyWith(sincronizado: true).toMap()]),
+      );
+      return response.statusCode == 200 || response.statusCode == 201 ? 1 : 0;
+    }
+
+    final db = await database;
+    final map = finalIncapacidad.toMap();
+    return db.insert(
+      DbConstants.tableIncapacidades,
+      map,
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  Future<IncapacidadModel?> getIncapacidadActivaByCedula(String cedula) async {
+    if (kIsWeb) {
+      final baseUrl =
+          await getConfig(DbConstants.cfgUrlApi) ?? ApiConstants.defaultBaseUrl;
+      final response = await http.get(Uri.parse('$baseUrl/api/sync/incapacidades'));
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final list = (data['data'] as List)
+            .map((p) => IncapacidadModel.fromMap(Map<String, dynamic>.from(p)))
+            .toList();
+        final ahora = DateFormat('yyyy-MM-dd HH:mm:ss').format(DateTime.now());
+        final results = list.where(
+          (p) =>
+              p.cedulaEmpleado == cedula &&
+              p.fechaInicio.compareTo(ahora) <= 0 &&
+              p.fechaFinal.compareTo(ahora) >= 0,
+        );
+        return results.isEmpty ? null : results.first;
+      }
+      return null;
+    }
+
+    final db = await database;
+    final ahora = DateFormat('yyyy-MM-dd HH:mm:ss').format(DateTime.now());
+    final rows = await db.query(
+      DbConstants.tableIncapacidades,
+      where: 'cedula_empleado = ? AND fecha_inicio <= ? AND fecha_final >= ?',
+      whereArgs: [cedula, ahora, ahora],
+      orderBy: 'fecha_hora DESC',
+      limit: 1,
+    );
+    if (rows.isEmpty) return null;
+    return IncapacidadModel.fromMap(rows.first);
+  }
+
+  Future<List<IncapacidadModel>> getIncapacidadesByCedula(String cedula) async {
+    if (kIsWeb) {
+      final baseUrl =
+          await getConfig(DbConstants.cfgUrlApi) ?? ApiConstants.defaultBaseUrl;
+      final response = await http.get(Uri.parse('$baseUrl/api/sync/incapacidades'));
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final list = (data['data'] as List)
+            .map((p) => IncapacidadModel.fromMap(Map<String, dynamic>.from(p)))
+            .toList();
+        return list.where((p) => p.cedulaEmpleado == cedula).toList();
+      }
+      return [];
+    }
+
+    final db = await database;
+    final rows = await db.query(
+      DbConstants.tableIncapacidades,
+      where: 'cedula_empleado = ?',
+      whereArgs: [cedula],
+      orderBy: 'fecha_inicio ASC',
+    );
+    return rows.map(IncapacidadModel.fromMap).toList();
+  }
+
+  Future<List<IncapacidadModel>> getIncapacidadesPendientes() async {
+    if (kIsWeb) return [];
+
+    final db = await database;
+    final rows = await db.query(
+      DbConstants.tableIncapacidades,
+      where: 'sincronizado = 0',
+    );
+    return rows.map(IncapacidadModel.fromMap).toList();
+  }
+
+  Future<List<IncapacidadModel>> getAllIncapacidades() async {
+    if (kIsWeb) {
+      final baseUrl =
+          await getConfig(DbConstants.cfgUrlApi) ?? ApiConstants.defaultBaseUrl;
+      final response = await http.get(Uri.parse('$baseUrl/api/sync/incapacidades'));
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final list = (data['data'] as List).map((p) {
+          final map = Map<String, dynamic>.from(p);
+          map['sincronizado'] = 1;
+          return IncapacidadModel.fromMap(map);
+        }).toList();
+        return list;
+      }
+      return [];
+    }
+
+    final db = await database;
+    final rows = await db.query(
+      DbConstants.tableIncapacidades,
+      orderBy: 'fecha_hora DESC',
+    );
+    return rows.map(IncapacidadModel.fromMap).toList();
+  }
+
+  Future<int> marcarIncapacidadSincronizada(String id) async {
+    if (kIsWeb) return 1;
+
+    final db = await database;
+    return db.update(
+      DbConstants.tableIncapacidades,
       {'sincronizado': 1},
       where: 'id = ?',
       whereArgs: [id],

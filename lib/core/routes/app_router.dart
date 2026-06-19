@@ -1,3 +1,4 @@
+import 'package:asistensia_empleados/presentation/pages/incapacidades/incapacidades_page.dart';
 import 'package:go_router/go_router.dart';
 import '../../presentation/pages/splash/splash_page.dart';
 import '../../presentation/pages/login/login_page.dart';
@@ -31,6 +32,7 @@ class AppRoutes {
   static const String ausentismo = '/ausentismo';
   static const String reportes = '/reportes';
   static const String registroMasivo = '/empleado/registro-masivo';
+  static const String incapacidades = '/incapacidades';
 }
 
 final appRouter = GoRouter(
@@ -62,9 +64,8 @@ final appRouter = GoRouter(
     ),
     GoRoute(
       path: AppRoutes.empleadoDetalle,
-      builder: (context, state) => EmpleadoDetailPage(
-        cedula: state.pathParameters['cedula']!,
-      ),
+      builder: (context, state) =>
+          EmpleadoDetailPage(cedula: state.pathParameters['cedula']!),
     ),
     GoRoute(
       path: AppRoutes.historial,
@@ -93,6 +94,10 @@ final appRouter = GoRouter(
     GoRoute(
       path: AppRoutes.registroMasivo,
       builder: (context, state) => const RegistroMasivoPage(),
+    ),
+    GoRoute(
+      path: AppRoutes.incapacidades,
+      builder: (context, state) => const IncapacidadesPage(),
     ),
   ],
 );

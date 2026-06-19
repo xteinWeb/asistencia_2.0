@@ -245,6 +245,28 @@ def startup_event():
         except Exception:
             pass
 
+        # Asegurar tabla incapacidades_asistencia
+        print("[Database] Asegurando tabla 'incapacidades_asistencia'...")
+        try:
+            cursor.execute("""
+                IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='incapacidades_asistencia' AND xtype='U')
+                CREATE TABLE incapacidades_asistencia (
+                    id VARCHAR(50) PRIMARY KEY,
+                    usuario_registrador VARCHAR(50) NOT NULL,
+                    cedula_empleado VARCHAR(50) NOT NULL,
+                    fecha_hora VARCHAR(30) NOT NULL,
+                    tipo VARCHAR(50) NOT NULL,
+                    fecha_inicio VARCHAR(30) NOT NULL,
+                    fecha_final VARCHAR(30) NOT NULL,
+                    observacion VARCHAR(500),
+                    fecha_registro_servidor DATETIME DEFAULT GETDATE(),
+                    FOREIGN KEY (cedula_empleado) REFERENCES empleados_asistencia(cedula) ON DELETE CASCADE
+                )
+            """)
+            print("[Database] Tabla 'incapacidades_asistencia' asegurada con éxito.")
+        except Exception as e:
+            print(f"Error al verificar/crear tabla incapacidades_asistencia: {e}")
+
         conn.close()
     except Exception as e:
         print(f"Error al verificar/sembrar usuarios por defecto en SQL Server: {e}")
@@ -347,11 +369,22 @@ class RegistroSyncItem(BaseModel):
     duracion: Optional[str] = None
     tipo: str
     unidad_negocio: str
+    metodo_registro: Optional[str] = 'FACIAL'
 
 class GenerarLltRequest(BaseModel):
     fecha: str
 
 class PermisoSyncItem(BaseModel):
+    id: str
+    usuario_registrador: str
+    cedula_empleado: str
+    fecha_hora: str
+    tipo: str
+    fecha_inicio: str
+    fecha_final: str
+    observacion: Optional[str] = None
+
+class IncapacidadSyncItem(BaseModel):
     id: str
     usuario_registrador: str
     cedula_empleado: str
@@ -528,15 +561,32 @@ def obtener_permisos():
         print(f"Error en obtener_permisos: {e}")
         raise HTTPException(status_code=500, detail=f"Error al obtener permisos desde SQL Server: {e}")
 
+@app.get("/api/sync/incapacidades")
+def obtener_incapacidades():
+    print("\n--- [GET /api/sync/incapacidades] Solicitud de Sincronización ---")
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(as_dict=True)
+        cursor.execute("SELECT id, usuario_registrador, cedula_empleado, fecha_hora, tipo, fecha_inicio, fecha_final, observacion FROM incapacidades_asistencia")
+        rows = cursor.fetchall()
+        conn.close()
+        
+        return {
+            "success": True,
+            "data": serialize_rows(rows)
+        }
+    except Exception as e:
+        print(f"Error en obtener_incapacidades: {e}")
+        raise HTTPException(status_code=500, detail=f"Error al obtener incapacidades desde SQL Server: {e}")
+
 @app.get("/api/sync/registros")
 def obtener_registros():
     print("\n--- [GET /api/sync/registros] Solicitud de Sincronización (Últimos 30 días) ---")
     try:
         conn = get_db_connection()
         cursor = conn.cursor(as_dict=True)
-        # Consulta idéntica de últimos 30 días optimizada
         cursor.execute("""
-            SELECT id, fecha_hora, cedula, evento, duracion, tipo, unidad_negocio 
+            SELECT id, fecha_hora, cedula, evento, duracion, tipo, unidad_negocio, metodo_registro 
             FROM registros_asistencia 
             WHERE fecha_registro_servidor >= DATEADD(day, -30, GETDATE()) 
             ORDER BY fecha_hora DESC
@@ -581,16 +631,17 @@ def sincronizar_registros(listado: List[RegistroSyncItem]):
             cursor.execute("SELECT 1 FROM registros_asistencia WHERE id = %s", (r.id,))
             if not cursor.fetchone():
                 cursor.execute("""
-                    INSERT INTO registros_asistencia (id, fecha_hora, cedula, evento, duracion, tipo, unidad_negocio, fecha_registro_servidor)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, GETDATE())
-                """, (r.id, r.fecha_hora, r.cedula, r.evento, r.duracion, r.tipo, r.unidad_negocio))
+                    INSERT INTO registros_asistencia (id, fecha_hora, cedula, evento, duracion, tipo, unidad_negocio, metodo_registro, fecha_registro_servidor)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, GETDATE())
+                """, (r.id, r.fecha_hora, r.cedula, r.evento, r.duracion, r.tipo, r.unidad_negocio, r.metodo_registro))
                 inserted += 1
             else:
                 ignored += 1
                 
-        # Generar ausentismos por permisos para limpiar registros de faltas
+        # Generar ausentismos por permisos e incapacidades para limpiar registros de faltas
         cursor_dict = conn.cursor(as_dict=True)
         generar_ausentismos_por_permisos(cursor_dict)
+        generar_ausentismos_por_incapacidades(cursor_dict)
         conn.close()
         print(f"[Sync Registros] Completado. Insertados: {inserted}, Omitidos (Duplicados): {ignored}")
         return {
@@ -717,6 +768,63 @@ def sincronizar_permisos(listado: List[PermisoSyncItem]):
     except Exception as e:
         print(f"Error en sincronizar_permisos: {e}")
         raise HTTPException(status_code=500, detail=f"Error al sincronizar permisos en SQL Server: {e}")
+
+@app.post("/api/sync/incapacidades")
+def sincronizar_incapacidades(listado: List[IncapacidadSyncItem]):
+    print(f"\n--- [POST /api/sync/incapacidades] Sincronizando {len(listado)} incapacidades ---")
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        inserted = 0
+        ignored = 0
+        
+        for p in listado:
+            # 1. Asegurar integridad referencial: crear empleado básico si no existe
+            cursor.execute("SELECT 1 FROM empleados_asistencia WHERE cedula = %s", (p.cedula_empleado,))
+            if not cursor.fetchone():
+                print(f"[Sync Incapacidades] Empleado {p.cedula_empleado} no existe. Registrando básico.")
+                cursor.execute(
+                    "INSERT INTO empleados_asistencia (cedula, nombre, estado, fecha_creacion) VALUES (%s, %s, 'ACTIVO', GETDATE())",
+                    (p.cedula_empleado, f"Empleado ({p.cedula_empleado})")
+                )
+            
+            # 2. Insertar o actualizar incapacidad
+            cursor.execute("SELECT 1 FROM incapacidades_asistencia WHERE id = %s", (p.id,))
+            if not cursor.fetchone():
+                cursor.execute("""
+                    INSERT INTO incapacidades_asistencia (id, usuario_registrador, cedula_empleado, fecha_hora, tipo, fecha_inicio, fecha_final, observacion, fecha_registro_servidor)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, GETDATE())
+                """, (p.id, p.usuario_registrador, p.cedula_empleado, p.fecha_hora, p.tipo, p.fecha_inicio, p.fecha_final, p.observacion))
+                inserted += 1
+            else:
+                cursor.execute("""
+                    UPDATE incapacidades_asistencia
+                    SET usuario_registrador = %s,
+                        cedula_empleado = %s,
+                        fecha_hora = %s,
+                        tipo = %s,
+                        fecha_inicio = %s,
+                        fecha_final = %s,
+                        observacion = %s
+                    WHERE id = %s
+                """, (p.usuario_registrador, p.cedula_empleado, p.fecha_hora, p.tipo, p.fecha_inicio, p.fecha_final, p.observacion, p.id))
+                ignored += 1
+                
+        # Generar ausentismos por incapacidades inmediatamente
+        cursor_dict = conn.cursor(as_dict=True)
+        generar_ausentismos_por_incapacidades(cursor_dict)
+        conn.close()
+        print(f"[Sync Incapacidades] Completado. Insertados: {inserted}, Omitidos: {ignored}")
+        return {
+            "success": True,
+            "message": "Sincronización de incapacidades completada.",
+            "sincronizados": inserted,
+            "omitidos": ignored
+        }
+    except Exception as e:
+        print(f"Error en sincronizar_incapacidades: {e}")
+        raise HTTPException(status_code=500, detail=f"Error al sincronizar incapacidades en SQL Server: {e}")
 
 @app.post("/api/sync/empleados")
 def sincronizar_empleados(listado: List[EmpleadoSyncItem]):
@@ -1025,6 +1133,99 @@ def generar_ausentismos_por_permisos(cursor):
     except Exception as e:
         print(f"Error al generar ausentismos por permisos: {e}")
 
+def generar_ausentismos_por_incapacidades(cursor):
+    print("[Database] Generando ausentismos automáticos basados en incapacidades_asistencia...")
+    try:
+        # 1. Obtener todas las incapacidades
+        cursor.execute("SELECT id, cedula_empleado, tipo, fecha_inicio, fecha_final FROM incapacidades_asistencia")
+        incapacidades = cursor.fetchall() or []
+        
+        for p in incapacidades:
+            cedula = p.get('cedula_empleado')
+            tipo = p.get('tipo')
+            f_ini = p.get('fecha_inicio')
+            f_fin = p.get('fecha_final')
+            
+            if not cedula or not f_ini or not f_fin:
+                continue
+                
+            # Convertir a datetime.date
+            if isinstance(f_ini, str):
+                try:
+                    dt_ini = datetime.datetime.fromisoformat(f_ini.replace(' ', 'T')).date()
+                except Exception:
+                    continue
+            elif isinstance(f_ini, (datetime.datetime, datetime.date)):
+                dt_ini = f_ini.date() if isinstance(f_ini, datetime.datetime) else f_ini
+            else:
+                continue
+                
+            if isinstance(f_fin, str):
+                try:
+                    dt_fin = datetime.datetime.fromisoformat(f_fin.replace(' ', 'T')).date()
+                except Exception:
+                    continue
+            elif isinstance(f_fin, (datetime.datetime, datetime.date)):
+                dt_fin = f_fin.date() if isinstance(f_fin, datetime.datetime) else f_fin
+            else:
+                continue
+                
+            # Generar todas las fechas en el rango (inclusive)
+            curr = dt_ini
+            while curr <= dt_fin:
+                fecha_str = curr.strftime('%Y-%m-%d')
+                
+                # Check 1: ¿Tiene entrada en registros_asistencia para esta fecha?
+                cursor.execute(
+                    "SELECT 1 FROM registros_asistencia WHERE cedula = %s AND evento = 'ENTRADA' AND fecha_hora LIKE %s",
+                    (cedula, f"{fecha_str}%")
+                )
+                tiene_entrada = cursor.fetchone()
+                
+                if not tiene_entrada:
+                    # Check 2: ¿Tiene ya un ausentismo en la tabla ausentismos?
+                    cursor.execute(
+                        "SELECT id, sigla_ausencia FROM ausentismos WHERE cedula_empleado = %s AND fecha = %s",
+                        (cedula, fecha_str)
+                    )
+                    existing_ausentismo = cursor.fetchone()
+                    
+                    sigla_target = tipo.upper()
+                    if sigla_target not in ['EG', 'AL', 'EL', 'LM']:
+                        sigla_target = 'EG'
+                        
+                    if not existing_ausentismo:
+                        # Crear ausentismo
+                        new_id = str(uuid.uuid4()).upper()
+                        cursor.execute(
+                            """
+                            INSERT INTO ausentismos (id, cedula_empleado, fecha, sigla_ausencia, observacion, fecha_registro_servidor)
+                            VALUES (%s, %s, %s, %s, %s, GETDATE())
+                            """,
+                            (new_id, cedula, fecha_str, sigla_target, f"Incapacidad: {tipo}")
+                        )
+                        print(f"[Auto-Ausentismo] Creado {sigla_target} para {cedula} en fecha {fecha_str}")
+                    else:
+                        sigla_existente = existing_ausentismo.get('sigla_ausencia') or existing_ausentismo.get('SIGLA_AUSENCIA')
+                        id_existente = existing_ausentismo.get('id') or existing_ausentismo.get('ID')
+                        if sigla_existente != sigla_target:
+                            cursor.execute(
+                                "UPDATE ausentismos SET sigla_ausencia = %s, observacion = %s WHERE id = %s",
+                                (sigla_target, f"Incapacidad: {tipo}", id_existente)
+                            )
+                            print(f"[Auto-Ausentismo] Actualizado a {sigla_target} para {cedula} en fecha {fecha_str}")
+                else:
+                    # Si tiene entrada pero existe un ausentismo con sigla de incapacidad, lo eliminamos
+                    cursor.execute(
+                        "DELETE FROM ausentismos WHERE cedula_empleado = %s AND fecha = %s AND sigla_ausencia IN ('EG', 'AL', 'EL', 'LM')",
+                        (cedula, fecha_str)
+                    )
+                
+                curr += datetime.timedelta(days=1)
+                
+    except Exception as e:
+        print(f"Error al generar ausentismos por incapacidades: {e}")
+
 
 # ==============================================================================
 # 7. ENDPOINTS DE AUSENTISMO
@@ -1054,6 +1255,7 @@ def obtener_ausentismos():
         conn = get_db_connection()
         cursor = conn.cursor(as_dict=True)
         generar_ausentismos_por_permisos(cursor)
+        generar_ausentismos_por_incapacidades(cursor)
         cursor.execute("SELECT id, cedula_empleado, fecha, sigla_ausencia, observacion FROM ausentismos")
         rows = cursor.fetchall()
         conn.close()
@@ -1106,9 +1308,10 @@ def sincronizar_ausentismos(listado: List[AusentismoSyncItem]):
             cursor.execute(query, (item.id, item.cedula_empleado, item.fecha, item.sigla_ausencia, item.observacion))
             processed += 1
             
-        # Generar ausentismos por permisos para mantener la base de datos limpia y consistente
+        # Generar ausentismos por permisos e incapacidades para mantener la base de datos limpia y consistente
         cursor_dict = conn.cursor(as_dict=True)
         generar_ausentismos_por_permisos(cursor_dict)
+        generar_ausentismos_por_incapacidades(cursor_dict)
         conn.close()
         print(f"[Sync Ausentismos] Procesados {processed} registros de ausentismo.")
         return {

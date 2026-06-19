@@ -9,6 +9,7 @@ class RegistroModel extends Registro {
     super.duracion,
     required super.tipo,
     required super.unidadNegocio,
+    super.metodoRegistro = 'FACIAL',
     super.sincronizado = false,
   });
 
@@ -20,6 +21,7 @@ class RegistroModel extends Registro {
         duracion: map['duracion'] as String?,
         tipo: map['tipo'] as String,
         unidadNegocio: map['unidad_negocio'] as String,
+        metodoRegistro: map['metodo_registro'] as String? ?? 'FACIAL',
         sincronizado: (map['sincronizado'] as int? ?? 0) == 1,
       );
 
@@ -31,6 +33,7 @@ class RegistroModel extends Registro {
         'duracion': duracion,
         'tipo': tipo,
         'unidad_negocio': unidadNegocio,
+        'metodo_registro': metodoRegistro,
         'sincronizado': sincronizado ? 1 : 0,
       };
 

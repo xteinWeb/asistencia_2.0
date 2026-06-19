@@ -27,14 +27,18 @@ class _HomePageState extends State<HomePage> {
         if (result.hasErrors) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('Sincronización finalizada con errores: ${result.errors.first}'),
+              content: Text(
+                'Sincronización finalizada con errores: ${result.errors.first}',
+              ),
               backgroundColor: AppColors.warning,
             ),
           );
         } else {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('¡Éxito! Sincronización bidireccional de todos los datos completada.'),
+              content: Text(
+                '¡Éxito! Sincronización bidireccional de todos los datos completada.',
+              ),
               backgroundColor: AppColors.success,
             ),
           );
@@ -43,7 +47,10 @@ class _HomePageState extends State<HomePage> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error de red al sincronizar: $e'), backgroundColor: AppColors.error),
+          SnackBar(
+            content: Text('Error de red al sincronizar: $e'),
+            backgroundColor: AppColors.error,
+          ),
         );
       }
     } finally {
@@ -95,7 +102,7 @@ class _HomePageState extends State<HomePage> {
       ),
       _MenuItem(
         icon: Icons.event_busy,
-        label: 'Ausentismo',
+        label: 'Novedades',
         subtitle: 'Control y justificaciones',
         color: AppColors.warning,
         route: AppRoutes.ausentismo,
@@ -106,6 +113,13 @@ class _HomePageState extends State<HomePage> {
         subtitle: 'Históricos y estadísticas',
         color: AppColors.info,
         route: AppRoutes.reportes,
+      ),
+      _MenuItem(
+        icon: Icons.medical_information,
+        label: 'Incapacidades',
+        subtitle: 'Ver de incapacidades',
+        color: AppColors.textSecondary,
+        route: AppRoutes.incapacidades,
       ),
       _MenuItem(
         icon: Icons.settings_outlined,
@@ -125,7 +139,10 @@ class _HomePageState extends State<HomePage> {
                 ? const SizedBox(
                     width: 20,
                     height: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.white,
+                    ),
                   )
                 : const Icon(Icons.sync),
             tooltip: 'Sincronizar todo',
@@ -230,4 +247,3 @@ class _MenuCard extends StatelessWidget {
     );
   }
 }
-
