@@ -19,6 +19,8 @@ import '../../models/permiso_model.dart';
 import '../../models/configuracion_model.dart';
 import '../../models/ausentismo_model.dart';
 import '../../models/incapacidad_model.dart';
+import '../../models/convocatoria_model.dart';
+import '../../models/convocatoria_empleado_model.dart';
 
 class DatabaseHelper {
   static final DatabaseHelper _instance = DatabaseHelper._internal();
@@ -230,6 +232,30 @@ class DatabaseHelper {
       CREATE TABLE ${DbConstants.tableConfiguracion} (
         clave TEXT PRIMARY KEY,
         valor TEXT NOT NULL
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE ${DbConstants.tableConvocatorias} (
+        id           TEXT PRIMARY KEY,
+        fecha        TEXT NOT NULL,
+        hora_inicio  TEXT NOT NULL,
+        hora_final   TEXT NOT NULL,
+        descripcion  TEXT NOT NULL,
+        sincronizado INTEGER NOT NULL DEFAULT 0
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE ${DbConstants.tableConvocatoriaEmpleados} (
+        convocatoria_id       TEXT NOT NULL,
+        cedula_empleado       TEXT NOT NULL,
+        asistio               INTEGER NOT NULL DEFAULT 0,
+        fecha_hora_asistencia TEXT,
+        sincronizado          INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY (convocatoria_id, cedula_empleado),
+        FOREIGN KEY (convocatoria_id) REFERENCES ${DbConstants.tableConvocatorias}(id) ON DELETE CASCADE,
+        FOREIGN KEY (cedula_empleado) REFERENCES ${DbConstants.tableEmpleados}(cedula) ON DELETE CASCADE
       )
     ''');
 
@@ -472,6 +498,70 @@ class DatabaseHelper {
         );
       } catch (e) {
         debugPrint('Error al agregar columna metodo_registro en SQLite: $e');
+      }
+    }
+    if (oldVersion < 14) {
+      try {
+        await db.execute('''
+          CREATE TABLE IF NOT EXISTS programacion_asistencia (
+            id           TEXT PRIMARY KEY,
+            fecha        TEXT NOT NULL,
+            hora_inicio  TEXT NOT NULL,
+            hora_final   TEXT NOT NULL,
+            descripcion  TEXT NOT NULL,
+            sincronizado INTEGER NOT NULL DEFAULT 0
+          )
+        ''');
+
+        await db.execute('''
+          CREATE TABLE IF NOT EXISTS itm_programacion_asistencia (
+            convocatoria_id       TEXT NOT NULL,
+            cedula_empleado       TEXT NOT NULL,
+            asistio               INTEGER NOT NULL DEFAULT 0,
+            fecha_hora_asistencia TEXT,
+            sincronizado          INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (convocatoria_id, cedula_empleado),
+            FOREIGN KEY (convocatoria_id) REFERENCES programacion_asistencia(id) ON DELETE CASCADE,
+            FOREIGN KEY (cedula_empleado) REFERENCES ${DbConstants.tableEmpleados}(cedula) ON DELETE CASCADE
+          )
+        ''');
+      } catch (e) {
+        debugPrint('Error al crear tablas de convocatorias en version 14: $e');
+      }
+    }
+    if (oldVersion < 15) {
+      try {
+        // Eliminar las tablas anteriores si existían con nombres viejos
+        await db.execute('DROP TABLE IF EXISTS convocatorias');
+        await db.execute('DROP TABLE IF EXISTS convocatoria_empleados');
+        
+        // Crear las tablas con la nueva nomenclatura
+        await db.execute('''
+          CREATE TABLE IF NOT EXISTS ${DbConstants.tableConvocatorias} (
+            id           TEXT PRIMARY KEY,
+            fecha        TEXT NOT NULL,
+            hora_inicio  TEXT NOT NULL,
+            hora_final   TEXT NOT NULL,
+            descripcion  TEXT NOT NULL,
+            sincronizado INTEGER NOT NULL DEFAULT 0
+          )
+        ''');
+
+        await db.execute('''
+          CREATE TABLE IF NOT EXISTS ${DbConstants.tableConvocatoriaEmpleados} (
+            convocatoria_id       TEXT NOT NULL,
+            cedula_empleado       TEXT NOT NULL,
+            asistio               INTEGER NOT NULL DEFAULT 0,
+            fecha_hora_asistencia TEXT,
+            sincronizado          INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (convocatoria_id, cedula_empleado),
+            FOREIGN KEY (convocatoria_id) REFERENCES ${DbConstants.tableConvocatorias}(id) ON DELETE CASCADE,
+            FOREIGN KEY (cedula_empleado) REFERENCES ${DbConstants.tableEmpleados}(cedula) ON DELETE CASCADE
+          )
+        ''');
+        debugPrint('[SQLite] Migración a Versión 15 exitosa. Tablas de programación creadas.');
+      } catch (e) {
+        debugPrint('Error al migrar tablas a version 15: $e');
       }
     }
   }
@@ -1557,6 +1647,237 @@ class DatabaseHelper {
       orderBy: 'fecha DESC',
     );
     return rows.map(AusentismoModel.fromMap).toList();
+  }
+
+  // ─── CONVOCATORIAS ────────────────────────────────────────────────────────
+
+  Future<int> insertConvocatoria(ConvocatoriaModel convocatoria) async {
+    if (kIsWeb) {
+      try {
+        final baseUrl = await getConfig(DbConstants.cfgUrlApi) ?? ApiConstants.defaultBaseUrl;
+        final response = await http.post(
+          Uri.parse('$baseUrl/api/sync/convocatorias'),
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode([convocatoria.toMap()]),
+        );
+        return response.statusCode == 200 || response.statusCode == 201 ? 1 : 0;
+      } catch (e) {
+        debugPrint('Error insertConvocatoria Web: $e');
+        return 0;
+      }
+    }
+    final db = await database;
+    return db.insert(
+      DbConstants.tableConvocatorias,
+      convocatoria.toMap(),
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  Future<List<ConvocatoriaModel>> getAllConvocatorias() async {
+    if (kIsWeb) {
+      try {
+        final baseUrl = await getConfig(DbConstants.cfgUrlApi) ?? ApiConstants.defaultBaseUrl;
+        final response = await http.get(Uri.parse('$baseUrl/api/sync/convocatorias'));
+        if (response.statusCode == 200) {
+          final body = jsonDecode(response.body);
+          if (body['success'] == true) {
+            final data = body['data'] as List;
+            final list = data.map((item) => ConvocatoriaModel.fromMap(Map<String, dynamic>.from(item))).toList();
+            list.sort((a, b) {
+              int cmp = b.fecha.compareTo(a.fecha);
+              if (cmp != 0) return cmp;
+              return a.horaInicio.compareTo(b.horaInicio);
+            });
+            return list;
+          }
+        }
+      } catch (e) {
+        debugPrint('Error getAllConvocatorias Web: $e');
+      }
+      return [];
+    }
+    final db = await database;
+    final rows = await db.query(DbConstants.tableConvocatorias, orderBy: 'fecha DESC, hora_inicio ASC');
+    return rows.map(ConvocatoriaModel.fromMap).toList();
+  }
+
+  Future<int> deleteConvocatoria(String id) async {
+    if (kIsWeb) {
+      try {
+        final baseUrl = await getConfig(DbConstants.cfgUrlApi) ?? ApiConstants.defaultBaseUrl;
+        final response = await http.delete(
+          Uri.parse('$baseUrl/api/sync/convocatorias/$id'),
+        );
+        return response.statusCode == 200 ? 1 : 0;
+      } catch (e) {
+        debugPrint('Error deleteConvocatoria Web: $e');
+        return 0;
+      }
+    }
+    final db = await database;
+    await db.delete(
+      DbConstants.tableConvocatoriaEmpleados,
+      where: 'convocatoria_id = ?',
+      whereArgs: [id],
+    );
+    return db.delete(
+      DbConstants.tableConvocatorias,
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
+  Future<int> insertConvocado(ConvocatoriaEmpleadoModel convocado) async {
+    if (kIsWeb) {
+      try {
+        final baseUrl = await getConfig(DbConstants.cfgUrlApi) ?? ApiConstants.defaultBaseUrl;
+        final response = await http.post(
+          Uri.parse('$baseUrl/api/sync/convocatoria-empleados'),
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode([convocado.toMap()]),
+        );
+        return response.statusCode == 200 || response.statusCode == 201 ? 1 : 0;
+      } catch (e) {
+        debugPrint('Error insertConvocado Web: $e');
+        return 0;
+      }
+    }
+    final db = await database;
+    return db.insert(
+      DbConstants.tableConvocatoriaEmpleados,
+      convocado.toMap(),
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  Future<List<ConvocatoriaEmpleadoModel>> getConvocadosPorConvocatoria(String convocatoriaId) async {
+    if (kIsWeb) {
+      try {
+        final baseUrl = await getConfig(DbConstants.cfgUrlApi) ?? ApiConstants.defaultBaseUrl;
+        final response = await http.get(Uri.parse('$baseUrl/api/sync/convocatoria-empleados'));
+        if (response.statusCode == 200) {
+          final body = jsonDecode(response.body);
+          if (body['success'] == true) {
+            final data = body['data'] as List;
+            return data
+                .map((item) => ConvocatoriaEmpleadoModel.fromMap(Map<String, dynamic>.from(item)))
+                .where((ce) => ce.convocatoriaId == convocatoriaId)
+                .toList();
+          }
+        }
+      } catch (e) {
+        debugPrint('Error getConvocadosPorConvocatoria Web: $e');
+      }
+      return [];
+    }
+    final db = await database;
+    final rows = await db.query(
+      DbConstants.tableConvocatoriaEmpleados,
+      where: 'convocatoria_id = ?',
+      whereArgs: [convocatoriaId],
+    );
+    return rows.map(ConvocatoriaEmpleadoModel.fromMap).toList();
+  }
+
+  Future<int> marcarAsistenciaConvocado(String convocatoriaId, String cedula, bool asistio, String? fechaHora) async {
+    if (kIsWeb) {
+      try {
+        final baseUrl = await getConfig(DbConstants.cfgUrlApi) ?? ApiConstants.defaultBaseUrl;
+        final response = await http.post(
+          Uri.parse('$baseUrl/api/sync/convocatoria-empleados'),
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode([{
+            'convocatoria_id': convocatoriaId,
+            'cedula_empleado': cedula,
+            'asistio': asistio ? 1 : 0,
+            'fecha_hora_asistencia': fechaHora,
+          }]),
+        );
+        return response.statusCode == 200 || response.statusCode == 201 ? 1 : 0;
+      } catch (e) {
+        debugPrint('Error marcarAsistenciaConvocado Web: $e');
+        return 0;
+      }
+    }
+    final db = await database;
+    return db.update(
+      DbConstants.tableConvocatoriaEmpleados,
+      {
+        'asistio': asistio ? 1 : 0,
+        'fecha_hora_asistencia': fechaHora,
+        'sincronizado': 0, // Volver a marcar para resincronizar
+      },
+      where: 'convocatoria_id = ? AND cedula_empleado = ?',
+      whereArgs: [convocatoriaId, cedula],
+    );
+  }
+
+  Future<List<ConvocatoriaModel>> getConvocatoriasPendientes() async {
+    if (kIsWeb) return [];
+    final db = await database;
+    final rows = await db.query(
+      DbConstants.tableConvocatorias,
+      where: 'sincronizado = 0',
+    );
+    return rows.map(ConvocatoriaModel.fromMap).toList();
+  }
+
+  Future<int> marcarConvocatoriasSincronizadas(List<String> ids) async {
+    if (kIsWeb || ids.isEmpty) return 0;
+    final db = await database;
+    final placeholders = ids.map((_) => '?').join(',');
+    return db.rawUpdate(
+      'UPDATE ${DbConstants.tableConvocatorias} SET sincronizado = 1 WHERE id IN ($placeholders)',
+      ids,
+    );
+  }
+
+  Future<List<ConvocatoriaEmpleadoModel>> getConvocatoriaEmpleadosPendientes() async {
+    if (kIsWeb) return [];
+    final db = await database;
+    final rows = await db.query(
+      DbConstants.tableConvocatoriaEmpleados,
+      where: 'sincronizado = 0',
+    );
+    return rows.map(ConvocatoriaEmpleadoModel.fromMap).toList();
+  }
+
+  Future<int> marcarConvocatoriaEmpleadosSincronizados(List<Map<String, String>> keyPairs) async {
+    if (kIsWeb || keyPairs.isEmpty) return 0;
+    final db = await database;
+    int count = 0;
+    await db.transaction((txn) async {
+      for (final pair in keyPairs) {
+        final cid = pair['convocatoria_id'];
+        final emp = pair['cedula_empleado'];
+        if (cid != null && emp != null) {
+          count += await txn.update(
+            DbConstants.tableConvocatoriaEmpleados,
+            {'sincronizado': 1},
+            where: 'convocatoria_id = ? AND cedula_empleado = ?',
+            whereArgs: [cid, emp],
+          );
+        }
+      }
+    });
+    return count;
+  }
+
+  Future<ConvocatoriaModel?> getConvocatoriaActivaParaEmpleado(String cedula, DateTime hora) async {
+    if (kIsWeb) return null;
+    final db = await database;
+    final fecha = DateFormat('yyyy-MM-dd').format(hora);
+    final horaStr = DateFormat('HH:mm').format(hora);
+
+    final rows = await db.rawQuery('''
+      SELECT c.* FROM ${DbConstants.tableConvocatorias} c
+      INNER JOIN ${DbConstants.tableConvocatoriaEmpleados} ce ON c.id = ce.convocatoria_id
+      WHERE ce.cedula_empleado = ? AND c.fecha = ? AND c.hora_inicio <= ? AND c.hora_final >= ?
+    ''', [cedula, fecha, horaStr, horaStr]);
+
+    if (rows.isEmpty) return null;
+    return ConvocatoriaModel.fromMap(rows.first);
   }
 
   // ─── UTILS ────────────────────────────────────────────────────────────────

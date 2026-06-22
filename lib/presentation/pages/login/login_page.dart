@@ -3,8 +3,9 @@ import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../../core/routes/app_router.dart';
 import '../../../core/theme/app_colors.dart';
-import '../../../data/datasources/local/database_helper.dart';
+import '../../../services/auth_service.dart';
 
+/// Página de login con usuario, contraseña y empresa (API externa)
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
 
@@ -14,55 +15,123 @@ class LoginPage extends StatefulWidget {
 
 class _LoginPageState extends State<LoginPage> {
   final _formKey = GlobalKey<FormState>();
-  final _usuarioCtrl = TextEditingController();
-  final _passwordCtrl = TextEditingController();
-  bool _loading = false;
-  bool _obscure = true;
+  final _usuarioController = TextEditingController();
+  final _passwordController = TextEditingController();
+
+  String? _empresaSeleccionada;
+  bool _obscurePassword = true;
+  bool _isLoading = false;
+  bool _cargandoEmpresas = false;
+
+  // Lista de empresas disponibles (se carga dinámicamente)
+  List<Map<String, String>> _empresas = [];
+  String idAs = '';
   String? _error;
 
   @override
   void dispose() {
-    _usuarioCtrl.dispose();
-    _passwordCtrl.dispose();
+    _usuarioController.dispose();
+    _passwordController.dispose();
     super.dispose();
   }
 
-  Future<void> _login() async {
-    if (!_formKey.currentState!.validate()) return;
+  /// Validar credenciales de usuario mediante la API externa
+  Future<void> _iniciarSesion() async {
+    if (!_formKey.currentState!.validate()) {
+      return;
+    }
+
     setState(() {
-      _loading = true;
+      _isLoading = true;
       _error = null;
     });
 
     try {
-      final db = DatabaseHelper();
-      final user = await db.getUsuario(
-        _usuarioCtrl.text.trim(),
-        _passwordCtrl.text.trim(),
+      String authResult = await login(
+        usuario: _usuarioController.text.trim(),
+        contra: _passwordController.text.trim(),
+        empresa: _empresaSeleccionada!,
+        idAs: idAs,
       );
 
-      if (user == null) {
-        setState(() => _error = 'Usuario o contraseña incorrectos');
-        return;
-      }
-
-      // Guardar información del rol del usuario en SharedPreferences
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('user_role', user.rol);
-      await prefs.setString('user_name', user.usuario);
-
-      if (mounted) {
-        // Si es administrador tiene acceso a todo (Home), si es operador/usuario va directo al Kiosko
-        if (user.rol == 'ADMIN') {
+      if (authResult == '') {
+        // Redirigir siempre a la pantalla Home (menú principal administrativo) por defecto
+        if (mounted) {
+          setState(() {
+            _isLoading = false;
+          });
           context.go(AppRoutes.home);
-        } else {
-          context.go(AppRoutes.asistencia);
+        }
+      } else {
+        if (mounted) {
+          setState(() {
+            _isLoading = false;
+            _error = authResult;
+          });
         }
       }
     } catch (e) {
-      setState(() => _error = 'Error al iniciar sesión: $e');
-    } finally {
-      if (mounted) setState(() => _loading = false);
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+          _error = 'Error de conexión: $e';
+        });
+      }
+    }
+  }
+
+  /// Función que se ejecuta cada vez que cambia el texto del usuario
+  void _onUsuarioCambiado(String usuario) {
+    _cargarEmpresasPorUsuario(usuario);
+  }
+
+  /// Cargar empresas desde API cuando el usuario escribe
+  Future<void> _cargarEmpresasPorUsuario(String usuario) async {
+    if (usuario.trim().isEmpty) {
+      if (mounted) {
+        setState(() {
+          _empresas = [];
+          _empresaSeleccionada = null;
+          _cargandoEmpresas = false;
+        });
+      }
+      return;
+    }
+
+    if (mounted) {
+      setState(() {
+        _cargandoEmpresas = true;
+        _empresaSeleccionada = null;
+      });
+    }
+
+    try {
+      Object resultado = await getEmpresa(usuario: usuario);
+      if (resultado is List<Map<String, String>>) {
+        if (mounted) {
+          setState(() {
+            _empresas = resultado;
+            _cargandoEmpresas = false;
+          });
+        }
+        print('Empresas cargadas: $resultado');
+      } else {
+        print('Error cargando empresas: $resultado');
+        if (mounted) {
+          setState(() {
+            _empresas = [];
+            _cargandoEmpresas = false;
+          });
+        }
+      }
+    } catch (e) {
+      print('Error cargando empresas: $e');
+      if (mounted) {
+        setState(() {
+          _empresas = [];
+          _cargandoEmpresas = false;
+        });
+      }
     }
   }
 
@@ -72,112 +141,226 @@ class _LoginPageState extends State<LoginPage> {
     final isWide = size.width > 600;
 
     return Scaffold(
-      body: Center(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24),
-          child: ConstrainedBox(
-            constraints: BoxConstraints(maxWidth: isWide ? 420 : double.infinity),
-            child: Card(
-              elevation: 4,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(16),
-              ),
-              child: Padding(
-                padding: const EdgeInsets.all(32),
-                child: Form(
-                  key: _formKey,
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Icon(
-                        Icons.admin_panel_settings,
-                        size: 64,
-                        color: AppColors.primary,
-                      ),
-                      const SizedBox(height: 16),
-                      Text(
-                        'Iniciar Sesión',
-                        style: TextStyle(
-                          fontSize: 24,
-                          fontWeight: FontWeight.bold,
-                          color: Theme.of(context).colorScheme.onSurface,
-                        ),
-                      ),
-                      const SizedBox(height: 32),
-                      TextFormField(
-                        controller: _usuarioCtrl,
-                        decoration: const InputDecoration(
-                          labelText: 'Usuario',
-                          prefixIcon: Icon(Icons.person_outline),
-                        ),
-                        textInputAction: TextInputAction.next,
-                        validator: (v) =>
-                            v == null || v.isEmpty ? 'Ingrese el usuario' : null,
-                      ),
-                      const SizedBox(height: 16),
-                      TextFormField(
-                        controller: _passwordCtrl,
-                        obscureText: _obscure,
-                        decoration: InputDecoration(
-                          labelText: 'Contraseña',
-                          prefixIcon: const Icon(Icons.lock_outline),
-                          suffixIcon: IconButton(
-                            icon: Icon(
-                              _obscure
-                                  ? Icons.visibility_off
-                                  : Icons.visibility,
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              Colors.blue.shade800,
+              Colors.blue.shade600,
+              Colors.blue.shade400,
+            ],
+          ),
+        ),
+        child: SafeArea(
+          child: Center(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(24),
+              child: ConstrainedBox(
+                constraints: BoxConstraints(
+                  maxWidth: isWide ? 460 : double.infinity,
+                ),
+                child: Card(
+                  elevation: 8,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.all(32),
+                    child: Form(
+                      key: _formKey,
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Icon(
+                            Icons.fingerprint_rounded,
+                            size: 72,
+                            color: Colors.blue.shade700,
+                          ),
+                          const SizedBox(height: 16),
+                          Text(
+                            'Control de Asistencia',
+                            style: TextStyle(
+                              fontSize: 24,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.grey.shade800,
                             ),
-                            onPressed: () =>
-                                setState(() => _obscure = !_obscure),
+                            textAlign: TextAlign.center,
                           ),
-                        ),
-                        textInputAction: TextInputAction.done,
-                        onFieldSubmitted: (_) => _login(),
-                        validator: (v) =>
-                            v == null || v.isEmpty ? 'Ingrese la contraseña' : null,
-                      ),
-                      if (_error != null) ...[
-                        const SizedBox(height: 12),
-                        Container(
-                          padding: const EdgeInsets.all(10),
-                          decoration: BoxDecoration(
-                            color: AppColors.error.withValues(alpha: 0.1),
-                            borderRadius: BorderRadius.circular(8),
+                          const SizedBox(height: 8),
+                          Text(
+                            'Ingresa tus credenciales para continuar',
+                            style: TextStyle(
+                              fontSize: 14,
+                              color: Colors.grey.shade600,
+                            ),
+                            textAlign: TextAlign.center,
                           ),
-                          child: Row(
-                            children: [
-                              const Icon(Icons.error_outline,
-                                  color: AppColors.error, size: 18),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: Text(
-                                  _error!,
-                                  style: const TextStyle(
-                                      color: AppColors.error, fontSize: 13),
+                          const SizedBox(height: 28),
+
+                          // Campo Usuario
+                          TextFormField(
+                            controller: _usuarioController,
+                            keyboardType: TextInputType.text,
+                            onChanged: _onUsuarioCambiado,
+                            decoration: const InputDecoration(
+                              labelText: 'Usuario',
+                              prefixIcon: Icon(Icons.person_outline),
+                            ),
+                            validator: (value) {
+                              if (value == null || value.trim().isEmpty) {
+                                return 'El usuario es obligatorio';
+                              }
+                              return null;
+                            },
+                          ),
+                          const SizedBox(height: 20),
+
+                          // Campo Contraseña
+                          TextFormField(
+                            controller: _passwordController,
+                            obscureText: _obscurePassword,
+                            keyboardType: TextInputType.visiblePassword,
+                            decoration: InputDecoration(
+                              labelText: 'Contraseña',
+                              prefixIcon: const Icon(Icons.lock_outline),
+                              suffixIcon: IconButton(
+                                icon: Icon(
+                                  _obscurePassword
+                                      ? Icons.visibility_off
+                                      : Icons.visibility,
                                 ),
+                                onPressed: () {
+                                  setState(() {
+                                    _obscurePassword = !_obscurePassword;
+                                  });
+                                },
                               ),
-                            ],
+                            ),
+                            validator: (value) {
+                              if (value == null || value.trim().isEmpty) {
+                                return 'La contraseña es obligatoria';
+                              }
+                              return null;
+                            },
                           ),
-                        ),
-                      ],
-                      const SizedBox(height: 24),
-                      SizedBox(
-                        width: double.infinity,
-                        child: ElevatedButton(
-                          onPressed: _loading ? null : _login,
-                          child: _loading
-                              ? const SizedBox(
-                                  height: 20,
-                                  width: 20,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    color: Colors.white,
+                          const SizedBox(height: 20),
+
+                          // Dropdown de Empresa
+                          DropdownButtonFormField<String>(
+                            isExpanded: true,
+                            value: _empresaSeleccionada,
+                            hint: _cargandoEmpresas
+                                ? const Text('Cargando empresas...')
+                                : Text(
+                                    _empresas.isEmpty
+                                        ? 'Ingresa tu usuario primero'
+                                        : 'Selecciona una empresa',
+                                    overflow: TextOverflow.ellipsis,
                                   ),
-                                )
-                              : const Text('Ingresar'),
-                        ),
+                            items: _empresas.map((empresa) {
+                              return DropdownMenuItem<String>(
+                                value: empresa['ID'],
+                                child: Container(
+                                  constraints: const BoxConstraints(
+                                    maxWidth: 300,
+                                  ),
+                                  child: Text(
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    empresa['EMPRESA'] ?? '',
+                                  ),
+                                ),
+                              );
+                            }).toList(),
+                            onChanged: (String? newValue) {
+                              setState(() {
+                                _empresaSeleccionada = newValue;
+                                if (newValue != null) {
+                                  final selected = _empresas.firstWhere(
+                                    (empresa) => empresa['ID'] == newValue,
+                                  );
+                                  idAs = selected['ID_AS'] ?? '';
+                                }
+                              });
+                            },
+                            validator: (value) {
+                              if (value == null || value.isEmpty) {
+                                return 'Selecciona una empresa';
+                              }
+                              return null;
+                            },
+                          ),
+
+                          if (_cargandoEmpresas) ...[
+                            const SizedBox(height: 8),
+                            const LinearProgressIndicator(),
+                          ],
+
+                          if (_error != null) ...[
+                            const SizedBox(height: 16),
+                            Container(
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: Colors.red.shade50,
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(color: Colors.red.shade200),
+                              ),
+                              child: Row(
+                                children: [
+                                  const Icon(
+                                    Icons.error_outline,
+                                    color: Colors.red,
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: Text(
+                                      _error!,
+                                      style: const TextStyle(
+                                        color: Colors.red,
+                                        fontSize: 13,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+
+                          const SizedBox(height: 28),
+
+                          ElevatedButton(
+                            onPressed: _isLoading ? null : _iniciarSesion,
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.blue.shade700,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(vertical: 16),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                            ),
+                            child: _isLoading
+                                ? const SizedBox(
+                                    height: 20,
+                                    width: 20,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: Colors.white,
+                                    ),
+                                  )
+                                : const Text(
+                                    'Iniciar Sesión',
+                                    style: TextStyle(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                          ),
+                        ],
                       ),
-                    ],
+                    ),
                   ),
                 ),
               ),

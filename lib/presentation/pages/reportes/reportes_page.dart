@@ -37,6 +37,7 @@ class _ReportesPageState extends State<ReportesPage> {
   int _totalAusentismos = 0;
   double _attendanceRate = 0.0;
   int _totalDaysSelected = 0;
+  int _rowsPerPage = 10;
 
   @override
   void initState() {
@@ -722,99 +723,141 @@ class _ReportesPageState extends State<ReportesPage> {
 
     return LayoutBuilder(
       builder: (context, constraints) {
+        final dataSource = _ReportDataTableSource(
+          data: _reportGridData,
+          datesInRange: _datesInRange,
+          buildBadgeCell: _buildBadgeCell,
+          showCellDetailsDialog: _showCellDetailsDialog,
+        );
+
         return Card(
           elevation: 2,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
           child: Padding(
             padding: const EdgeInsets.all(8.0),
-            child: Scrollbar(
-              thumbVisibility: true,
-              trackVisibility: true,
-              child: SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: ConstrainedBox(
-                  constraints: BoxConstraints(minWidth: constraints.maxWidth - 20),
-                  child: DataTable(
-                    headingRowColor: WidgetStateProperty.all(AppColors.primary.withOpacity(0.05)),
-                    columnSpacing: 20,
-                    dataRowHeight: 56,
-                    columns: [
-                      const DataColumn(
-                        label: Text(
-                          'Empleado / Nombre',
-                          style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.primary),
-                        ),
-                      ),
-                      ..._datesInRange.map((dateStr) {
-                        final parsedDate = DateTime.parse(dateStr);
-                        final dayLabel = DateFormat('dd MMM').format(parsedDate);
-                        return DataColumn(
-                          label: Text(
-                            dayLabel,
-                            style: const TextStyle(fontWeight: FontWeight.bold),
-                            textAlign: TextAlign.center,
-                          ),
-                        );
-                      }),
-                      const DataColumn(
-                        label: Text('Asist.', style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.success)),
-                        numeric: true,
-                      ),
-                      const DataColumn(
-                        label: Text('Ret.', style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.warning)),
-                        numeric: true,
-                      ),
-                      const DataColumn(
-                        label: Text('Aus.', style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.error)),
-                        numeric: true,
-                      ),
-                    ],
-                    rows: _reportGridData.map((row) {
-                      final datesDetails = row['fechas'] as Map<String, Map<String, String>>;
-                      return DataRow(
-                        cells: [
-                          DataCell(
-                            Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Text(
-                                  row['nombre'].toString(),
-                                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
-                                ),
-                                Text(
-                                  'C.C. ${row['cedula']}',
-                                  style: const TextStyle(fontSize: 11, color: AppColors.textSecondary),
-                                ),
-                              ],
-                            ),
-                          ),
-                          ..._datesInRange.map((dateStr) {
-                            final detail = datesDetails[dateStr];
-                            if (detail == null) {
-                              return const DataCell(Center(child: Text('-')));
-                            }
-                            return DataCell(
-                              _buildBadgeCell(detail),
-                              onTap: () => _showCellDetailsDialog(row['nombre'].toString(), dateStr, detail),
-                            );
-                          }),
-                          DataCell(Text(row['asistencias'].toString(), style: const TextStyle(fontWeight: FontWeight.bold))),
-                          DataCell(Text(row['retardos'].toString(), style: const TextStyle(fontWeight: FontWeight.bold))),
-                          DataCell(Text(row['ausentismos'].toString(), style: const TextStyle(fontWeight: FontWeight.bold))),
-                        ],
-                      );
-                    }).toList(),
+            child: PaginatedDataTable(
+              header: const Text('Asistencias por Empleado'),
+              rowsPerPage: _rowsPerPage,
+              onRowsPerPageChanged: (value) {
+                if (value != null) {
+                  setState(() {
+                    _rowsPerPage = value;
+                  });
+                }
+              },
+              availableRowsPerPage: const [5, 10, 20, 50],
+              columnSpacing: 15,
+              horizontalMargin: 10,
+              showCheckboxColumn: false,
+              columns: [
+                const DataColumn(
+                  label: Text(
+                    'Empleado / Nombre',
+                    style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.primary),
                   ),
                 ),
-              ),
+                ..._datesInRange.map((dateStr) {
+                  final parsedDate = DateTime.parse(dateStr);
+                  final dayLabel = DateFormat('dd MMM').format(parsedDate);
+                  return DataColumn(
+                    label: Text(
+                      dayLabel,
+                      style: const TextStyle(fontWeight: FontWeight.bold),
+                      textAlign: TextAlign.center,
+                    ),
+                  );
+                }),
+                const DataColumn(
+                  label: Text('Asist.', style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.success)),
+                  numeric: true,
+                ),
+                const DataColumn(
+                  label: Text('Ret.', style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.warning)),
+                  numeric: true,
+                ),
+                const DataColumn(
+                  label: Text('Aus.', style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.error)),
+                  numeric: true,
+                ),
+              ],
+              source: dataSource,
             ),
           ),
         );
       },
     );
   }
+}
 
+class _ReportDataTableSource extends DataTableSource {
+  final List<Map<String, dynamic>> data;
+  final List<String> datesInRange;
+  final Widget Function(Map<String, String>) buildBadgeCell;
+  final void Function(String, String, Map<String, String>) showCellDetailsDialog;
+
+  _ReportDataTableSource({
+    required this.data,
+    required this.datesInRange,
+    required this.buildBadgeCell,
+    required this.showCellDetailsDialog,
+  });
+
+  @override
+  DataRow? getRow(int index) {
+    if (index >= data.length) return null;
+    final row = data[index];
+    final datesDetails = row['fechas'] as Map<String, Map<String, String>>;
+
+    return DataRow.byIndex(
+      index: index,
+      cells: [
+        DataCell(
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(
+                row['nombre'].toString(),
+                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+              Text(
+                'C.C. ${row['cedula']}',
+                style: const TextStyle(fontSize: 10, color: AppColors.textSecondary),
+              ),
+            ],
+          ),
+        ),
+        ...datesInRange.map((dateStr) {
+          final detail = datesDetails[dateStr];
+          if (detail == null) {
+            return const DataCell(Center(child: Text('-')));
+          }
+          return DataCell(
+            buildBadgeCell(detail),
+            onTap: () => showCellDetailsDialog(row['nombre'].toString(), dateStr, detail),
+          );
+        }),
+        DataCell(Text(row['asistencias'].toString(), style: const TextStyle(fontWeight: FontWeight.bold))),
+        DataCell(Text(row['retardos'].toString(), style: const TextStyle(fontWeight: FontWeight.bold))),
+        DataCell(Text(row['ausentismos'].toString(), style: const TextStyle(fontWeight: FontWeight.bold))),
+      ],
+    );
+  }
+
+  @override
+  int get selectedRowCount => 0;
+
+  @override
+  bool get isRowCountApproximate => false;
+
+  @override
+  int get rowCount => data.length;
+}
+
+// Continuación del estado _ReportesPageState:
+extension _ReportesPageStateBadge on _ReportesPageState {
   Widget _buildBadgeCell(Map<String, String> detail) {
     final estado = detail['estado']!;
     

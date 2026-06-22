@@ -21,6 +21,7 @@ import '../../../domain/usecases/marcar_asistencia_usecase.dart';
 import '../../../core/routes/app_router.dart';
 import '../../../data/models/empleado_model.dart';
 import '../../../data/models/registro_model.dart';
+import '../../../services/auth_service.dart';
 
 class AsistenciaPage extends StatefulWidget {
   const AsistenciaPage({super.key});
@@ -356,6 +357,142 @@ class _AsistenciaPageState extends State<AsistenciaPage> {
         _cancelarFlujoMarcacion();
       }
     }
+  }
+
+  Future<void> _intentarSalirAlHome() async {
+    final passwordController = TextEditingController();
+    final formKey = GlobalKey<FormState>();
+    bool obscurePassword = true;
+    bool validando = false;
+    String? dialogError;
+
+    await showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setStateDialog) => AlertDialog(
+          backgroundColor: AppColors.primaryLight,
+          title: const Text(
+            'Acceso Administrativo',
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+          ),
+          content: Form(
+            key: formKey,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text(
+                  'Ingresa tu contraseña para volver al panel de administración:',
+                  style: TextStyle(color: Colors.white70, fontSize: 13),
+                ),
+                const SizedBox(height: 16),
+                TextFormField(
+                  controller: passwordController,
+                  obscureText: obscurePassword,
+                  style: const TextStyle(color: Colors.black),
+                  decoration: InputDecoration(
+                    labelText: 'Contraseña',
+                    labelStyle: const TextStyle(color: Colors.black),
+                    prefixIcon: const Icon(Icons.lock_outline, color: Colors.black),
+                    suffixIcon: IconButton(
+                      icon: Icon(
+                        obscurePassword ? Icons.visibility_off : Icons.visibility,
+                        color: Colors.black,
+                      ),
+                      onPressed: () {
+                        setStateDialog(() {
+                          obscurePassword = !obscurePassword;
+                        });
+                      },
+                    ),
+                    enabledBorder: const OutlineInputBorder(
+                      borderSide: BorderSide(color: Colors.white24),
+                    ),
+                    focusedBorder: const OutlineInputBorder(
+                      borderSide: BorderSide(color: AppColors.secondary),
+                    ),
+                  ),
+                  validator: (v) =>
+                      v == null || v.isEmpty ? 'Ingresa tu contraseña' : null,
+                ),
+                if (dialogError != null) ...[
+                  const SizedBox(height: 12),
+                  Text(
+                    dialogError!,
+                    style: const TextStyle(color: Colors.redAccent, fontSize: 13),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: validando ? null : () => Navigator.pop(context),
+              child: const Text(
+                'Cancelar',
+                style: TextStyle(color: Colors.white54),
+              ),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.secondary,
+              ),
+              onPressed: validando
+                  ? null
+                  : () async {
+                      if (formKey.currentState!.validate()) {
+                        setStateDialog(() {
+                          validando = true;
+                          dialogError = null;
+                        });
+
+                        try {
+                          final prefs = await SharedPreferences.getInstance();
+                          final usuario = prefs.getString('auth_usuario') ?? '';
+                          final empresa = prefs.getString('auth_empresa_id') ?? '';
+                          final pass = passwordController.text;
+
+                          final result = await login(
+                            usuario: usuario,
+                            contra: pass,
+                            empresa: empresa,
+                            idAs: 'U100',
+                          );
+
+                          if (result == '') {
+                            if (context.mounted) {
+                              Navigator.pop(context);
+                              context.go(AppRoutes.home);
+                            }
+                          } else {
+                            setStateDialog(() {
+                              validando = false;
+                              dialogError = result;
+                            });
+                          }
+                        } catch (e) {
+                          setStateDialog(() {
+                            validando = false;
+                            dialogError = 'Error: $e';
+                          });
+                        }
+                      }
+                    },
+              child: validando
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                      ),
+                    )
+                  : const Text('Ingresar', style: TextStyle(color: Colors.white)),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Future<void> _mostrarDialogoMarcacionOffline() async {
@@ -1676,7 +1813,7 @@ class _AsistenciaPageState extends State<AsistenciaPage> {
               leading: _userRole == 'ADMIN'
                   ? IconButton(
                       icon: const Icon(Icons.arrow_back, color: Colors.white),
-                      onPressed: () => context.go(AppRoutes.home),
+                      onPressed: _intentarSalirAlHome,
                     )
                   : IconButton(
                       icon: const Icon(Icons.exit_to_app, color: Colors.white),
@@ -1741,7 +1878,7 @@ class _AsistenciaPageState extends State<AsistenciaPage> {
               leading: _userRole == 'ADMIN'
                   ? IconButton(
                       icon: const Icon(Icons.arrow_back, color: Colors.white),
-                      onPressed: () => context.go(AppRoutes.home),
+                      onPressed: _intentarSalirAlHome,
                     )
                   : IconButton(
                       icon: const Icon(Icons.exit_to_app, color: Colors.white),
@@ -1767,7 +1904,8 @@ class _AsistenciaPageState extends State<AsistenciaPage> {
           await SystemNavigator.pop();
           return false;
         }
-        return true;
+        await _intentarSalirAlHome();
+        return false;
       },
       child: mainContent,
     );

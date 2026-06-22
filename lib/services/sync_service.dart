@@ -14,6 +14,8 @@ import '../data/models/permiso_model.dart';
 import '../data/models/incapacidad_model.dart';
 import '../data/models/registro_model.dart';
 import '../data/models/ausentismo_model.dart';
+import '../data/models/convocatoria_model.dart';
+import '../data/models/convocatoria_empleado_model.dart';
 
 /// Servicio de sincronización periódica y bidireccional.
 class SyncService {
@@ -115,6 +117,13 @@ class SyncService {
 
       final pullA = await _pullAusentismos(baseUrl);
       errors.addAll(pullA);
+
+      // ─── FASE 3: SINCRONIZACIÓN DE CONVOCATORIAS (PUSH & PULL) ───────
+      final pushC = await _pushConvocatorias(baseUrl);
+      errors.addAll(pushC);
+
+      final pullC = await _pullConvocatorias(baseUrl);
+      errors.addAll(pullC);
 
       return SyncResult(
         registros: registrosSynced,
@@ -524,6 +533,105 @@ class SyncService {
     }
 
     return (synced, errors);
+  }
+
+  Future<List<String>> _pushConvocatorias(String baseUrl) async {
+    final errors = <String>[];
+    
+    // 1. Subir convocatorias
+    try {
+      final convocatorias = await _db.getConvocatoriasPendientes();
+      if (convocatorias.isNotEmpty) {
+        final uri = Uri.parse('$baseUrl/api/sync/convocatorias');
+        final body = jsonEncode(convocatorias.map((c) => c.toMap()).toList());
+        final response = await http
+            .post(uri, headers: {'Content-Type': 'application/json'}, body: body)
+            .timeout(const Duration(milliseconds: ApiConstants.receiveTimeoutMs));
+
+        if (response.statusCode == 200 || response.statusCode == 201) {
+          final ids = convocatorias.map((c) => c.id).toList();
+          await _db.marcarConvocatoriasSincronizadas(ids);
+        } else {
+          errors.add('Error push convocatorias: ${response.statusCode}');
+        }
+      }
+    } catch (e) {
+      errors.add('Excepción push convocatorias: $e');
+    }
+
+    // 2. Subir asignaciones de personal
+    try {
+      final asignaciones = await _db.getConvocatoriaEmpleadosPendientes();
+      if (asignaciones.isNotEmpty) {
+        final uri = Uri.parse('$baseUrl/api/sync/convocatoria-empleados');
+        final body = jsonEncode(asignaciones.map((ce) => ce.toMap()).toList());
+        final response = await http
+            .post(uri, headers: {'Content-Type': 'application/json'}, body: body)
+            .timeout(const Duration(milliseconds: ApiConstants.receiveTimeoutMs));
+
+        if (response.statusCode == 200 || response.statusCode == 201) {
+          final keyPairs = asignaciones.map((ce) => {
+            'convocatoria_id': ce.convocatoriaId,
+            'cedula_empleado': ce.cedulaEmpleado,
+          }).toList();
+          await _db.marcarConvocatoriaEmpleadosSincronizados(keyPairs);
+        } else {
+          errors.add('Error push asignaciones convocatoria: ${response.statusCode}');
+        }
+      }
+    } catch (e) {
+      errors.add('Excepción push asignaciones convocatoria: $e');
+    }
+
+    return errors;
+  }
+
+  Future<List<String>> _pullConvocatorias(String baseUrl) async {
+    final errors = <String>[];
+
+    // 1. Descargar convocatorias
+    try {
+      final uri = Uri.parse('$baseUrl/api/sync/convocatorias');
+      final response = await http.get(uri).timeout(const Duration(milliseconds: ApiConstants.receiveTimeoutMs));
+
+      if (response.statusCode == 200) {
+        final body = jsonDecode(response.body);
+        if (body['success'] == true) {
+          final data = body['data'] as List;
+          for (final item in data) {
+            final conv = ConvocatoriaModel.fromMap(Map<String, dynamic>.from(item)..['sincronizado'] = 1);
+            await _db.insertConvocatoria(conv);
+          }
+        }
+      } else {
+        errors.add('Error pull convocatorias: ${response.statusCode}');
+      }
+    } catch (e) {
+      errors.add('Excepción pull convocatorias: $e');
+    }
+
+    // 2. Descargar asignaciones de personal
+    try {
+      final uri = Uri.parse('$baseUrl/api/sync/convocatoria-empleados');
+      final response = await http.get(uri).timeout(const Duration(milliseconds: ApiConstants.receiveTimeoutMs));
+
+      if (response.statusCode == 200) {
+        final body = jsonDecode(response.body);
+        if (body['success'] == true) {
+          final data = body['data'] as List;
+          for (final item in data) {
+            final ce = ConvocatoriaEmpleadoModel.fromMap(Map<String, dynamic>.from(item)..['sincronizado'] = 1);
+            await _db.insertConvocado(ce);
+          }
+        }
+      } else {
+        errors.add('Error pull asignaciones de convocatorias: ${response.statusCode}');
+      }
+    } catch (e) {
+      errors.add('Excepción pull asignaciones de convocatorias: $e');
+    }
+
+    return errors;
   }
 }
 

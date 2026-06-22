@@ -101,6 +101,13 @@ class _HomePageState extends State<HomePage> {
         route: AppRoutes.permisos,
       ),
       _MenuItem(
+        icon: Icons.assignment_turned_in_outlined,
+        label: 'Programación',
+        subtitle: 'Personal y tiempo extra',
+        color: AppColors.colorPermiso,
+        route: AppRoutes.convocatorias,
+      ),
+      _MenuItem(
         icon: Icons.event_busy,
         label: 'Novedades',
         subtitle: 'Control y justificaciones',

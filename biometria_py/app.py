@@ -267,6 +267,43 @@ def startup_event():
         except Exception as e:
             print(f"Error al verificar/crear tabla incapacidades_asistencia: {e}")
 
+        # Asegurar tabla programacion_asistencia
+        print("[Database] Asegurando tabla 'programacion_asistencia'...")
+        try:
+            cursor.execute("""
+                IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='programacion_asistencia' AND xtype='U')
+                CREATE TABLE programacion_asistencia (
+                    id VARCHAR(50) PRIMARY KEY,
+                    fecha VARCHAR(10) NOT NULL,
+                    hora_inicio VARCHAR(10) NOT NULL,
+                    hora_final VARCHAR(10) NOT NULL,
+                    descripcion VARCHAR(250) NOT NULL,
+                    fecha_registro_servidor DATETIME DEFAULT GETDATE()
+                )
+            """)
+            print("[Database] Tabla 'programacion_asistencia' asegurada con éxito.")
+        except Exception as e:
+            print(f"Error al verificar/crear tabla programacion_asistencia: {e}")
+
+        # Asegurar tabla itm_programacion_asistencia
+        print("[Database] Asegurando tabla 'itm_programacion_asistencia'...")
+        try:
+            cursor.execute("""
+                IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='itm_programacion_asistencia' AND xtype='U')
+                CREATE TABLE itm_programacion_asistencia (
+                    convocatoria_id VARCHAR(50) NOT NULL,
+                    cedula_empleado VARCHAR(50) NOT NULL,
+                    asistio INT NOT NULL DEFAULT 0,
+                    fecha_hora_asistencia VARCHAR(30),
+                    PRIMARY KEY (convocatoria_id, cedula_empleado),
+                    FOREIGN KEY (convocatoria_id) REFERENCES programacion_asistencia(id) ON DELETE CASCADE,
+                    FOREIGN KEY (cedula_empleado) REFERENCES empleados_asistencia(cedula) ON DELETE CASCADE
+                )
+            """)
+            print("[Database] Tabla 'itm_programacion_asistencia' asegurada con éxito.")
+        except Exception as e:
+            print(f"Error al verificar/crear tabla itm_programacion_asistencia: {e}")
+
         conn.close()
     except Exception as e:
         print(f"Error al verificar/sembrar usuarios por defecto en SQL Server: {e}")
@@ -420,6 +457,19 @@ class AusentismoSyncItem(BaseModel):
     fecha: str
     sigla_ausencia: str
     observacion: Optional[str] = None
+
+class ConvocatoriaSyncItem(BaseModel):
+    id: str
+    fecha: str
+    hora_inicio: str
+    hora_final: str
+    descripcion: str
+
+class ConvocatoriaEmpleadoSyncItem(BaseModel):
+    convocatoria_id: str
+    cedula_empleado: str
+    asistio: int
+    fecha_hora_asistencia: Optional[str] = None
 
 
 # ==============================================================================
@@ -1339,3 +1389,157 @@ def eliminar_ausentismo(id: str):
     except Exception as e:
         print(f"Error en eliminar_ausentismo: {e}")
         raise HTTPException(status_code=500, detail=f"Error al eliminar ausentismo en SQL Server: {e}")
+
+
+# ─── ENDPOINTS CONVOCATORIAS / PROGRAMACION ─────────────────────────────────
+
+@app.get("/api/sync/convocatorias")
+def obtener_convocatorias():
+    print("\n--- [GET /api/sync/convocatorias] Solicitud de Sincronización ---")
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(as_dict=True)
+        cursor.execute("SELECT id, fecha, hora_inicio, hora_final, descripcion FROM programacion_asistencia")
+        rows = cursor.fetchall()
+        conn.close()
+        return {
+            "success": True,
+            "data": serialize_rows(rows)
+        }
+    except Exception as e:
+        print(f"Error en obtener_convocatorias: {e}")
+        raise HTTPException(status_code=500, detail=f"Error al obtener convocatorias desde SQL Server: {e}")
+
+@app.get("/api/sync/convocatoria-empleados")
+def obtener_convocatoria_empleados():
+    print("\n--- [GET /api/sync/convocatoria-empleados] Solicitud de Sincronización ---")
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(as_dict=True)
+        cursor.execute("SELECT convocatoria_id, cedula_empleado, asistio, fecha_hora_asistencia FROM itm_programacion_asistencia")
+        rows = cursor.fetchall()
+        conn.close()
+        return {
+            "success": True,
+            "data": serialize_rows(rows)
+        }
+    except Exception as e:
+        print(f"Error en obtener_convocatoria_empleados: {e}")
+        raise HTTPException(status_code=500, detail=f"Error al obtener asignaciones de convocatoria: {e}")
+
+@app.post("/api/sync/convocatorias")
+def sincronizar_convocatorias(listado: List[ConvocatoriaSyncItem]):
+    print(f"\n--- [POST /api/sync/convocatorias] Sincronizando {len(listado)} convocatorias ---")
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        processed = 0
+        for c in listado:
+            query = """
+            DECLARE @id VARCHAR(50) = %s;
+            DECLARE @fecha VARCHAR(10) = %s;
+            DECLARE @hora_inicio VARCHAR(10) = %s;
+            DECLARE @hora_final VARCHAR(10) = %s;
+            DECLARE @descripcion VARCHAR(250) = %s;
+
+            MERGE programacion_asistencia AS target
+            USING (SELECT @id AS id) AS source
+            ON (target.id = source.id)
+            WHEN MATCHED THEN
+                UPDATE SET 
+                    fecha = @fecha,
+                    hora_inicio = @hora_inicio,
+                    hora_final = @hora_final,
+                    descripcion = @descripcion
+            WHEN NOT MATCHED THEN
+                INSERT (id, fecha, hora_inicio, hora_final, descripcion, fecha_registro_servidor)
+                VALUES (@id, @fecha, @hora_inicio, @hora_final, @descripcion, GETDATE());
+            """
+            cursor.execute(query, (c.id, c.fecha, c.hora_inicio, c.hora_final, c.descripcion))
+            processed += 1
+            
+        conn.close()
+        print(f"[Sync Convocatorias] Procesadas {processed} convocatorias.")
+        return {
+            "success": True,
+            "message": "Sincronización de convocatorias completada.",
+            "procesados": processed
+        }
+    except Exception as e:
+        print(f"Error en sincronizar_convocatorias: {e}")
+        raise HTTPException(status_code=500, detail=f"Error al sincronizar convocatorias: {e}")
+
+@app.delete("/api/sync/convocatorias/{id}")
+def eliminar_convocatoria(id: str):
+    print(f"\n--- [DELETE /api/sync/convocatorias/{id}] Eliminando programación ---")
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Eliminar asignaciones primero
+        cursor.execute("DELETE FROM itm_programacion_asistencia WHERE convocatoria_id = %s", (id,))
+        # Eliminar cabecera
+        cursor.execute("DELETE FROM programacion_asistencia WHERE id = %s", (id,))
+        
+        conn.close()
+        return {"success": True, "message": "Programación eliminada con éxito."}
+    except Exception as e:
+        print(f"Error al eliminar convocatoria: {e}")
+        raise HTTPException(status_code=500, detail=f"Error al eliminar convocatoria: {e}")
+
+@app.post("/api/sync/convocatoria-empleados")
+def sincronizar_convocatoria_empleados(listado: List[ConvocatoriaEmpleadoSyncItem]):
+    print(f"\n--- [POST /api/sync/convocatoria-empleados] Sincronizando {len(listado)} asignaciones de convocatoria ---")
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        processed = 0
+        for ce in listado:
+            # Asegurar integridad referencial: crear empleado básico si no existe
+            cursor.execute("SELECT 1 FROM empleados_asistencia WHERE cedula = %s", (ce.cedula_empleado,))
+            if not cursor.fetchone():
+                cursor.execute(
+                    "INSERT INTO empleados_asistencia (cedula, nombre, estado, fecha_creacion) VALUES (%s, %s, 'ACTIVO', GETDATE())",
+                    (ce.cedula_empleado, f"Empleado ({ce.cedula_empleado})")
+                )
+
+            # Asegurar que existe la convocatoria
+            cursor.execute("SELECT 1 FROM programacion_asistencia WHERE id = %s", (ce.convocatoria_id,))
+            if not cursor.fetchone():
+                cursor.execute(
+                    "INSERT INTO programacion_asistencia (id, fecha, hora_inicio, hora_final, descripcion, fecha_registro_servidor) VALUES (%s, '2026-01-01', '08:00', '12:00', 'Convocatoria temporal', GETDATE())",
+                    (ce.convocatoria_id,)
+                )
+                
+            query = """
+            DECLARE @convocatoria_id VARCHAR(50) = %s;
+            DECLARE @cedula_empleado VARCHAR(50) = %s;
+            DECLARE @asistio INT = %s;
+            DECLARE @fecha_hora_asistencia VARCHAR(30) = %s;
+
+            MERGE itm_programacion_asistencia AS target
+            USING (SELECT @convocatoria_id AS convocatoria_id, @cedula_empleado AS cedula_empleado) AS source
+            ON (target.convocatoria_id = source.convocatoria_id AND target.cedula_empleado = source.cedula_empleado)
+            WHEN MATCHED THEN
+                UPDATE SET 
+                    asistio = @asistio,
+                    fecha_hora_asistencia = @fecha_hora_asistencia
+            WHEN NOT MATCHED THEN
+                INSERT (convocatoria_id, cedula_empleado, asistio, fecha_hora_asistencia)
+                VALUES (@convocatoria_id, @cedula_empleado, @asistio, @fecha_hora_asistencia);
+            """
+            cursor.execute(query, (ce.convocatoria_id, ce.cedula_empleado, ce.asistio, ce.fecha_hora_asistencia))
+            processed += 1
+            
+        conn.close()
+        print(f"[Sync Convocatorias] Procesadas {processed} asignaciones.")
+        return {
+            "success": True,
+            "message": "Sincronización de asignaciones completada.",
+            "procesados": processed
+        }
+    except Exception as e:
+        print(f"Error en sincronizar_convocatoria_empleados: {e}")
+        raise HTTPException(status_code=500, detail=f"Error al sincronizar asignaciones de convocatoria: {e}")

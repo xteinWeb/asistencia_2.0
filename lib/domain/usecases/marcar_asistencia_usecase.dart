@@ -360,6 +360,23 @@ class MarcarAsistenciaUseCase {
     // Guardar en SQLite local
     await _db.insertRegistro(registro);
 
+    // Registrar asistencia automática en Convocatorias si corresponde
+    try {
+      final convocatoriaActiva = await _db.getConvocatoriaActivaParaEmpleado(empleado.cedula, ahora);
+      if (convocatoriaActiva != null) {
+        final timestampStr = ahora.toIso8601String().substring(0, 19).replaceAll('T', ' ');
+        await _db.marcarAsistenciaConvocado(
+          convocatoriaActiva.id,
+          empleado.cedula,
+          true,
+          timestampStr,
+        );
+        print('[Convocatoria] Marcado automático de asistencia para convocado: ${empleado.cedula} en convocatoria ${convocatoriaActiva.id}');
+      }
+    } catch (e) {
+      print('[Convocatoria] Error al marcar asistencia automática en Convocatorias: $e');
+    }
+
     // Mapeamos el tipo final al enum TipoRegistro para el resultado
     TipoRegistro tipoResultado = tipoSeleccionado;
     if (tipoFinal == 'PERMISO') {

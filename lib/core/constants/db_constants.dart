@@ -1,6 +1,6 @@
 class DbConstants {
   static const String dbName = 'asistencia_empleados.db';
-  static const int dbVersion = 13;
+  static const int dbVersion = 15;
 
 
   // Table names
@@ -11,6 +11,8 @@ class DbConstants {
   static const String tablePermisos = 'permisos';
   static const String tableIncapacidades = 'incapacidades_asistencia';
   static const String tableConfiguracion = 'configuracion';
+  static const String tableConvocatorias = 'programacion_asistencia';
+  static const String tableConvocatoriaEmpleados = 'itm_programacion_asistencia';
 
   // Empleados columns
   static const String colCedula = 'cedula';

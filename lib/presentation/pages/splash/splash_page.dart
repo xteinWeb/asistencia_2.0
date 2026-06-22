@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../../core/routes/app_router.dart';
 import '../../../data/datasources/local/database_helper.dart';
 
@@ -32,11 +33,16 @@ class _SplashPageState extends State<SplashPage> {
       setState(() => _status = 'Cargando configuración...');
       await db.getConfig('url_api');
 
-      setState(() => _status = 'Listo');
-      await Future.delayed(const Duration(milliseconds: 800));
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('auth_token');
+      final usuario = prefs.getString('auth_usuario');
 
       if (mounted) {
-        context.go(AppRoutes.login);
+        if (token != null && usuario != null) {
+          context.go(AppRoutes.asistencia);
+        } else {
+          context.go(AppRoutes.login);
+        }
       }
     } catch (e) {
       setState(() => _status = 'Error al inicializar: $e');
