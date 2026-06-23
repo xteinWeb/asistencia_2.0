@@ -1303,13 +1303,17 @@ class DatabaseHelper {
 
   Future<String?> getConfig(String clave) async {
     if (kIsWeb) {
+      final prefs = await SharedPreferences.getInstance();
+      final savedValue = prefs.getString(clave);
       if (clave == DbConstants.cfgUrlApi) {
+        if (savedValue != null && savedValue.trim().isNotEmpty) {
+          return savedValue;
+        }
         // En la Web, la URL de la API es dinámica y depende enteramente del host y puerto
         // desde el cual se cargó el sitio web. Forzamos null para usar siempre ApiConstants.defaultBaseUrl.
         return null;
       }
-      final prefs = await SharedPreferences.getInstance();
-      return prefs.getString(clave);
+      return savedValue;
     }
 
     final db = await database;

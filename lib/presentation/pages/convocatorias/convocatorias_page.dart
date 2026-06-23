@@ -136,7 +136,7 @@ class _ConvocatoriasPageState extends State<ConvocatoriasPage> {
                   ),
                   child: ListTile(
                     leading: const CircleAvatar(
-                      backgroundColor: Colors.deepPurple,
+                      backgroundColor: AppColors.primary,
                       child: Icon(Icons.event, color: Colors.white),
                     ),
                     title: Text(
@@ -167,7 +167,7 @@ class _ConvocatoriasPageState extends State<ConvocatoriasPage> {
               },
             ),
       floatingActionButton: FloatingActionButton(
-        backgroundColor: Colors.deepPurple,
+        backgroundColor: AppColors.primary,
         foregroundColor: Colors.white,
         child: const Icon(Icons.add),
         onPressed: () => Navigator.push(

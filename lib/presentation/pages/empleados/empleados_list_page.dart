@@ -720,10 +720,8 @@ class _EmpleadosListPageState extends State<EmpleadosListPage> {
                   constraints: const BoxConstraints(),
                   onPressed: () => context.go('${AppRoutes.empleados}/${emp.cedula}'),
                 ),
-                const SizedBox(width: 8),
-
-                // Sincronizar individual (Solo si tiene rostro y no está sincronizado)
                 if (tieneRostro && !emp.sincronizado) ...[
+                  const SizedBox(width: 8),
                   _syncingEmployees[emp.cedula] == true
                       ? const SizedBox(
                           width: 16,
@@ -737,17 +735,7 @@ class _EmpleadosListPageState extends State<EmpleadosListPage> {
                           constraints: const BoxConstraints(),
                           onPressed: () => _syncSingleEmpleado(emp),
                         ),
-                  const SizedBox(width: 8),
                 ],
-
-                // Inactivar
-                IconButton(
-                  icon: const Icon(Icons.delete_outline_rounded, color: AppColors.error, size: 18),
-                  tooltip: 'Inactivar Empleado',
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(),
-                  onPressed: () => _deleteEmpleado(emp.cedula, emp.nombre),
-                ),
               ],
             ),
           ),

@@ -65,9 +65,8 @@ class AppTheme {
           color: AppColors.divider,
           thickness: 1,
         ),
-        snackBarTheme: SnackBarThemeData(
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        snackBarTheme: const SnackBarThemeData(
+          behavior: SnackBarBehavior.fixed,
         ),
         chipTheme: ChipThemeData(
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
@@ -141,9 +140,8 @@ class AppTheme {
           color: Colors.white10,
           thickness: 1,
         ),
-        snackBarTheme: SnackBarThemeData(
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        snackBarTheme: const SnackBarThemeData(
+          behavior: SnackBarBehavior.fixed,
         ),
         chipTheme: ChipThemeData(
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),

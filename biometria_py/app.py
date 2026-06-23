@@ -49,6 +49,24 @@ def serialize_rows(rows):
         return []
     return [serialize_row(r) for r in rows]
 
+def format_datetime_for_sql(val_str):
+    if not val_str:
+        return None
+    val_str = str(val_str).strip()
+    if val_str in ("", "0", "None"):
+        return None
+    val_str = val_str.replace('T', ' ')
+    if '.' in val_str:
+        parts = val_str.split('.')
+        date_time_part = parts[0]
+        frac_part = parts[1]
+        frac_digits = "".join(c for c in frac_part if c.isdigit())[:3]
+        if frac_digits:
+            return f"{date_time_part}.{frac_digits}"
+        else:
+            return date_time_part
+    return val_str
+
 # Normalización L2 para asegurar que los vectores residan en una esfera unitaria.
 # Esto reduce la distancia euclidiana entre el mismo rostro de ~4.0 a ~0.34,
 # logrando compatibilidad perfecta con el umbral estricto de 0.6 de la tableta de Flutter.
@@ -577,10 +595,89 @@ def obtener_empleados():
     try:
         conn = get_db_connection()
         cursor = conn.cursor(as_dict=True)
+        
+        # 1. Sincronizar estados inactivos desde 'empleados' (ERP) a 'empleados_asistencia'
         cursor.execute("""
-            SELECT e.cedula, e.nombre, e.mapa_vector_foto, e.horario_id, e.fecha_ini_contrato, e.fecha_fin_contrato, e.estado, e.sede_principal, e.id_seccion, COALESCE(e.tipo, et.tipo) AS tipo, e.fecha_creacion AS fecha_registro
-            FROM empleados_asistencia e
-            LEFT JOIN empleados_tipo et ON e.cedula = et.cedula
+            UPDATE ea
+            SET ea.estado = 'INACTIVO'
+            FROM empleados_asistencia ea
+            INNER JOIN empleados emp ON ea.cedula = emp.ID_EMPLEADO
+            WHERE emp.ESTADO = 'INACTIVO' AND ea.estado <> 'INACTIVO'
+        """)
+        
+        # 2. Sincronizar estados activos desde 'empleados' (ERP) a 'empleados_asistencia'
+        cursor.execute("""
+            UPDATE ea
+            SET ea.estado = 'ACTIVO'
+            FROM empleados_asistencia ea
+            INNER JOIN empleados emp ON ea.cedula = emp.ID_EMPLEADO
+            WHERE emp.ESTADO = 'ACTIVO' AND ea.estado <> 'ACTIVO'
+        """)
+        
+        # 3. Insertar nuevos empleados activos en 'empleados_asistencia'
+        cursor.execute("""
+            INSERT INTO empleados_asistencia (cedula, nombre, estado, fecha_creacion)
+            SELECT 
+                emp.ID_EMPLEADO,
+                LTRIM(RTRIM(
+                    COALESCE(il.NOMBRE, '') + ' ' + 
+                    COALESCE(il.NOMBRE2, '') + ' ' + 
+                    COALESCE(il.APELLIDO, '') + ' ' + 
+                    COALESCE(il.APELLIDO2, '')
+                )),
+                'ACTIVO',
+                GETDATE()
+            FROM empleados emp
+            INNER JOIN IDENTIFICACIONES_LEGALES il ON emp.ID_LEGAL = il.ID_LEGAL
+            WHERE COALESCE(emp.ESTADO, 'ACTIVO') = 'ACTIVO'
+              AND emp.ID_EMPLEADO NOT IN (SELECT cedula FROM empleados_asistencia)
+        """)
+        
+        # 4. Obtener la lista unificada de empleados con horarios de ITM_EMPLEADOS_TURNOS
+        cursor.execute("""
+            SELECT 
+                COALESCE(LTRIM(RTRIM(emp.ID_EMPLEADO)), LTRIM(RTRIM(ea.cedula))) AS cedula,
+                COALESCE(
+                    LTRIM(RTRIM(
+                        COALESCE(il.NOMBRE, '') + ' ' + 
+                        COALESCE(il.NOMBRE2, '') + ' ' + 
+                        COALESCE(il.APELLIDO, '') + ' ' + 
+                        COALESCE(il.APELLIDO2, '')
+                    )), 
+                    ea.nombre, 
+                    ''
+                ) AS nombre,
+                ea.mapa_vector_foto AS mapa_vector_foto,
+                COALESCE(turn.ID_HORARIO, ea.horario_id, '') AS horario_id,
+                COALESCE(ea.fecha_ini_contrato, '0') AS fecha_ini_contrato,
+                COALESCE(ea.fecha_fin_contrato, '0') AS fecha_fin_contrato,
+                COALESCE(emp.ESTADO, ea.estado, 'ACTIVO') AS estado,
+                COALESCE(ea.sede_principal, emp.ID_UN_ITEM, '') AS sede_principal,
+                ies.ID_SECCION AS id_seccion,
+                COALESCE(ea.tipo, ies.ID_ACTIVIDAD, '') AS tipo,
+                ea.fecha_creacion AS fecha_registro
+            FROM empleados emp
+            FULL OUTER JOIN empleados_asistencia ea ON LTRIM(RTRIM(emp.ID_EMPLEADO)) = LTRIM(RTRIM(ea.cedula))
+            LEFT JOIN IDENTIFICACIONES_LEGALES il ON (emp.ID_LEGAL = il.ID_LEGAL OR TRY_CAST(COALESCE(emp.ID_EMPLEADO, ea.cedula) AS FLOAT) = il.ID_LEGAL)
+            LEFT JOIN empleados_secciones es ON COALESCE(LTRIM(RTRIM(emp.ID_EMPLEADO)), LTRIM(RTRIM(ea.cedula))) = LTRIM(RTRIM(es.ID_EMPLEADO)) AND COALESCE(emp.ID_UN, ea.sede_principal, '00') = es.ID_UN
+            LEFT JOIN (
+                SELECT LTRIM(RTRIM(ID_EMPLEADO)) AS ID_EMPLEADO, ID_UN, MAX(ID_SECCION) AS ID_SECCION, MAX(ID_ACTIVIDAD) AS ID_ACTIVIDAD
+                FROM itm_empleados_Secciones
+                WHERE TIPO = 'PRINCIPAL'
+                GROUP BY LTRIM(RTRIM(ID_EMPLEADO)), ID_UN
+            ) ies ON COALESCE(LTRIM(RTRIM(emp.ID_EMPLEADO)), LTRIM(RTRIM(ea.cedula))) = ies.ID_EMPLEADO AND COALESCE(emp.ID_UN, '00') = ies.ID_UN
+            LEFT JOIN (
+                SELECT t.ID_EMPLEADO, MAX(t.ID_HORARIO) AS ID_HORARIO
+                FROM ITM_EMPLEADOS_TURNOS t
+                INNER JOIN (
+                    SELECT ID_EMPLEADO, MAX(FECHA) AS MAX_FECHA
+                    FROM ITM_EMPLEADOS_TURNOS
+                    WHERE ESTADO = 'ACTIVO'
+                    GROUP BY ID_EMPLEADO
+                ) latest ON t.ID_EMPLEADO = latest.ID_EMPLEADO AND t.FECHA = latest.MAX_FECHA
+                GROUP BY t.ID_EMPLEADO
+            ) turn ON COALESCE(LTRIM(RTRIM(emp.ID_EMPLEADO)), LTRIM(RTRIM(ea.cedula))) = turn.ID_EMPLEADO
+            WHERE COALESCE(emp.ESTADO, ea.estado, 'ACTIVO') = 'ACTIVO'
         """)
         rows = cursor.fetchall()
         conn.close()
@@ -920,21 +1017,28 @@ def sincronizar_empleados(listado: List[EmpleadoSyncItem]):
                 VALUES (@cedula, @nombre, @mapaVectorFoto, @horarioId, @fechaIniContrato, @fechaFinContrato, @estado, @sedePrincipal, @idSeccion, @tipo, COALESCE(@fechaRegistro, GETDATE()));
             """
             
-            # Convertir horario_id a None si está vacío
-            h_id = emp.horario_id if emp.horario_id and emp.horario_id.strip() != "" else None
+            # Sanitizar campos vacíos o con valores '0'/'None' para evitar errores de conversión en SQL Server
+            h_id = emp.horario_id if emp.horario_id and emp.horario_id.strip() not in ("", "None") else None
+            fecha_ini = emp.fecha_ini_contrato if emp.fecha_ini_contrato and emp.fecha_ini_contrato.strip() not in ("", "0", "None") else None
+            fecha_fin = emp.fecha_fin_contrato if emp.fecha_fin_contrato and emp.fecha_fin_contrato.strip() not in ("", "0", "None") else None
+            fecha_reg = format_datetime_for_sql(emp.fecha_registro)
+            sede = emp.sede_principal if emp.sede_principal and emp.sede_principal.strip() not in ("", "None") else None
+            seccion = emp.id_seccion if emp.id_seccion and emp.id_seccion.strip() not in ("", "None") else None
+            tipo = emp.tipo if emp.tipo and emp.tipo.strip() not in ("", "None") else None
+            estado = emp.estado if emp.estado and emp.estado.strip() not in ("", "None") else None
             
             cursor.execute(query, (
                 emp.cedula,
                 emp.nombre,
                 emp.mapa_vector_foto,
                 h_id,
-                emp.fecha_ini_contrato,
-                emp.fecha_fin_contrato,
-                emp.estado,
-                emp.sede_principal,
-                emp.id_seccion,
-                emp.tipo,
-                emp.fecha_registro
+                fecha_ini,
+                fecha_fin,
+                estado,
+                sede,
+                seccion,
+                tipo,
+                fecha_reg
             ))
             
             # MERGE para empleados_tipo
@@ -1030,7 +1134,9 @@ def eliminar_empleado(cedula: str):
         conn = get_db_connection()
         cursor = conn.cursor()
         
+        # Inactivar en ambas tablas para mantener consistencia
         cursor.execute("UPDATE empleados_asistencia SET estado = 'INACTIVO' WHERE cedula = %s", (cedula,))
+        cursor.execute("UPDATE empleados_secciones SET ESTADO = 'INACTIVO' WHERE ID_EMPLEADO = %s", (cedula,))
         conn.close()
         
         print(f"[Inactivar] Empleado con cédula {cedula} marcado como INACTIVO en SQL Server.")

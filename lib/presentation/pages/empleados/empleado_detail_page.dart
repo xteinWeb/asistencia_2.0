@@ -1,6 +1,10 @@
+import 'dart:io';
+import 'dart:math';
+import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
@@ -11,6 +15,7 @@ import '../../../data/datasources/local/database_helper.dart';
 import '../../../data/models/empleado_model.dart';
 import '../../../data/models/horario_model.dart';
 import '../../../data/models/registro_model.dart';
+import '../../../services/face_recognition_service.dart';
 import '../../../services/sync_service.dart';
 
 class EmpleadoDetailPage extends StatefulWidget {
@@ -43,6 +48,18 @@ class _EmpleadoDetailPageState extends State<EmpleadoDetailPage> {
   List<HorarioModel> _allHorarios = [];
   List<Map<String, dynamic>> _allSecciones = [];
 
+  // Variables de biometría en edición
+  List<double>? _newVectorBiometrico;
+  bool _enrolando = false;
+  String _biometricStatusText = 'Esperando captura de rostro';
+  Color _biometricStatusColor = Colors.grey;
+  bool _rostroRegistrado = false;
+  XFile? _capturedImage;
+  CameraController? _cameraController;
+  List<CameraDescription> _cameras = [];
+  bool _isCameraInitialized = false;
+  bool _initializingCamera = false;
+
   @override
   void initState() {
     super.initState();
@@ -54,7 +71,189 @@ class _EmpleadoDetailPageState extends State<EmpleadoDetailPage> {
     _nombreCtrl.dispose();
     _fechaIniCtrl.dispose();
     _fechaFinCtrl.dispose();
+    _disposeCamera();
     super.dispose();
+  }
+
+  Future<void> _disposeCamera() async {
+    if (_cameraController != null) {
+      await _cameraController!.dispose();
+      _cameraController = null;
+    }
+    if (mounted) {
+      setState(() {
+        _isCameraInitialized = false;
+        _initializingCamera = false;
+      });
+    }
+  }
+
+  Future<void> _resetBiometricsEditingState() async {
+    await _disposeCamera();
+    setState(() {
+      _newVectorBiometrico = null;
+      _enrolando = false;
+      _biometricStatusText = 'Esperando captura de rostro';
+      _biometricStatusColor = Colors.grey;
+      _rostroRegistrado = _empleado?.mapaVectorFoto.isNotEmpty ?? false;
+      _capturedImage = null;
+    });
+  }
+
+  Future<void> _initializeCamera() async {
+    if (_initializingCamera || _isCameraInitialized) return;
+
+    setState(() {
+      _initializingCamera = true;
+      _capturedImage = null;
+      _enrolando = false;
+      _biometricStatusText = 'Iniciando cámara...';
+      _biometricStatusColor = AppColors.info;
+    });
+
+    try {
+      _cameras = await availableCameras();
+      if (_cameras.isEmpty) {
+        throw Exception('No se detectaron cámaras en el dispositivo.');
+      }
+
+      CameraDescription selectedCamera = _cameras.first;
+      for (final cam in _cameras) {
+        if (cam.lensDirection == CameraLensDirection.front) {
+          selectedCamera = cam;
+          break;
+        }
+      }
+
+      _cameraController = CameraController(
+        selectedCamera,
+        ResolutionPreset.medium,
+        enableAudio: false,
+      );
+
+      await _cameraController!.initialize();
+
+      if (mounted) {
+        setState(() {
+          _isCameraInitialized = true;
+          _initializingCamera = false;
+          _biometricStatusText = 'Cámara lista. Enmarque el rostro.';
+          _biometricStatusColor = AppColors.primary;
+        });
+      }
+    } catch (e) {
+      await _disposeCamera();
+      if (mounted) {
+        setState(() {
+          _enrolando = false;
+          _biometricStatusText = 'Error al iniciar cámara: ${e.toString().replaceAll('Exception: ', '')}';
+          _biometricStatusColor = AppColors.error;
+        });
+      }
+    }
+  }
+
+  Future<void> _procesarImagen(String path) async {
+    setState(() {
+      _enrolando = true;
+      _biometricStatusText = 'Procesando imagen y generando vector...';
+      _biometricStatusColor = AppColors.primary;
+    });
+
+    try {
+      final faceService = FaceRecognitionService();
+      final vector = await faceService.generarVectorDesdeImagen(
+        path,
+        cedula: widget.cedula,
+      );
+
+      if (mounted) {
+        setState(() {
+          _newVectorBiometrico = vector;
+          _enrolando = false;
+          _rostroRegistrado = true;
+          _biometricStatusText = '¡ROSTRO PROCESADO Y VECTOR GENERADO EXITOSAMENTE!';
+          _biometricStatusColor = AppColors.success;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('¡Rostro validado en el servidor con éxito!'),
+            backgroundColor: AppColors.success,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _capturedImage = null;
+          _enrolando = false;
+          _biometricStatusText = 'Error en validación de rostro: ${e.toString().replaceAll('Exception: ', '')}';
+          _biometricStatusColor = AppColors.error;
+        });
+      }
+    }
+  }
+
+  Future<void> _capturarFoto() async {
+    if (_cameraController == null || !_isCameraInitialized) return;
+    try {
+      final image = await _cameraController!.takePicture();
+      await _disposeCamera();
+
+      setState(() {
+        _capturedImage = image;
+      });
+
+      await _procesarImagen(image.path);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error al capturar foto: $e'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _seleccionarDeGaleria() async {
+    await _disposeCamera();
+    try {
+      final picker = ImagePicker();
+      final pickedFile = await picker.pickImage(
+        source: ImageSource.gallery,
+        maxWidth: 1000,
+        maxHeight: 1000,
+        imageQuality: 85,
+      );
+
+      if (pickedFile != null) {
+        setState(() {
+          _capturedImage = XFile(pickedFile.path);
+        });
+        await _procesarImagen(pickedFile.path);
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error al seleccionar imagen: $e'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _cancelarAcciones() async {
+    await _disposeCamera();
+    setState(() {
+      _capturedImage = null;
+      _enrolando = false;
+      _biometricStatusText = 'Esperando captura de rostro';
+      _biometricStatusColor = Colors.grey;
+    });
   }
 
   Future<void> _loadEmpleadoData() async {
@@ -81,7 +280,8 @@ class _EmpleadoDetailPageState extends State<EmpleadoDetailPage> {
         _fechaIniCtrl.text = emp.fechaIniContrato ?? '';
         _fechaFinCtrl.text = emp.fechaFinContrato ?? '';
         _selectedHorarioId = emp.horarioId;
-        _selectedTipo = emp.tipo ?? 'OPERATIVO';
+        final rawTipo = (emp.tipo ?? 'OPERATIVO').trim().toUpperCase();
+        _selectedTipo = (rawTipo == 'OPERATIVO' || rawTipo == 'ADMINISTRATIVO' || rawTipo == 'LIDER') ? rawTipo : 'OPERATIVO';
         _selectedSeccionId = emp.idSeccion;
       }
     } catch (e) {
@@ -110,13 +310,15 @@ class _EmpleadoDetailPageState extends State<EmpleadoDetailPage> {
         fechaFinContrato: _fechaFinCtrl.text.trim().isNotEmpty
             ? _fechaFinCtrl.text.trim()
             : null,
-        idSeccion: _selectedTipo == 'OPERATIVO' ? _selectedSeccionId : null,
+        idSeccion: (_selectedTipo == 'OPERATIVO' || _selectedTipo == 'LIDER') ? _selectedSeccionId : null,
         tipo: _selectedTipo,
         sincronizado: false,
+        mapaVectorFoto: _newVectorBiometrico ?? _empleado!.mapaVectorFoto,
       );
 
       final success = await _db.updateEmpleado(updated);
       if (success > 0) {
+        await _disposeCamera();
         if (!kIsWeb) {
           final syncService = Provider.of<SyncService>(context, listen: false);
           syncService.syncAll();
@@ -216,8 +418,9 @@ class _EmpleadoDetailPageState extends State<EmpleadoDetailPage> {
         title: Text(_isEditing ? 'Editar Colaborador' : _empleado!.nombre),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
-          onPressed: () {
+          onPressed: () async {
             if (_isEditing) {
+              await _resetBiometricsEditingState();
               setState(() => _isEditing = false);
             } else {
               context.go(AppRoutes.empleados);
@@ -236,8 +439,17 @@ class _EmpleadoDetailPageState extends State<EmpleadoDetailPage> {
                   _fechaIniCtrl.text = _empleado!.fechaIniContrato ?? '';
                   _fechaFinCtrl.text = _empleado!.fechaFinContrato ?? '';
                   _selectedHorarioId = _empleado!.horarioId;
-                  _selectedTipo = _empleado!.tipo ?? 'OPERATIVO';
+                  final rawTipo = (_empleado!.tipo ?? 'OPERATIVO').trim().toUpperCase();
+                  _selectedTipo = (rawTipo == 'OPERATIVO' || rawTipo == 'ADMINISTRATIVO' || rawTipo == 'LIDER') ? rawTipo : 'OPERATIVO';
                   _selectedSeccionId = _empleado!.idSeccion;
+
+                  // Initialize biometric editing states
+                  _newVectorBiometrico = null;
+                  _rostroRegistrado = tieneVector;
+                  _biometricStatusText = tieneVector
+                      ? 'Rostro ya registrado. Puede re-tomar o subir otra foto si desea actualizarlo.'
+                      : 'Esperando captura de rostro';
+                  _biometricStatusColor = tieneVector ? AppColors.success : Colors.grey;
                 });
               },
             )
@@ -251,7 +463,10 @@ class _EmpleadoDetailPageState extends State<EmpleadoDetailPage> {
             IconButton(
               icon: const Icon(Icons.close_rounded, color: Colors.white),
               tooltip: 'Cancelar',
-              onPressed: () => setState(() => _isEditing = false),
+              onPressed: () async {
+                await _resetBiometricsEditingState();
+                setState(() => _isEditing = false);
+              },
             ),
           ],
         ],
@@ -323,17 +538,12 @@ class _EmpleadoDetailPageState extends State<EmpleadoDetailPage> {
                         // Nombre
                         TextFormField(
                           controller: _nombreCtrl,
+                          readOnly: true,
                           decoration: const InputDecoration(
-                            labelText: 'Nombre Completo',
+                            labelText: 'Nombre Completo (No editable)',
                             prefixIcon: Icon(Icons.person),
                             border: OutlineInputBorder(),
                           ),
-                          validator: (val) {
-                            if (val == null || val.trim().isEmpty) {
-                              return 'El nombre es requerido';
-                            }
-                            return null;
-                          },
                         ),
                         const SizedBox(height: 16),
 
@@ -387,6 +597,10 @@ class _EmpleadoDetailPageState extends State<EmpleadoDetailPage> {
                               value: 'ADMINISTRATIVO',
                               child: Text('ADMINISTRATIVO'),
                             ),
+                            DropdownMenuItem<String>(
+                              value: 'LIDER',
+                              child: Text('LIDER'),
+                            ),
                           ],
                           onChanged: (val) {
                             setState(() {
@@ -400,7 +614,7 @@ class _EmpleadoDetailPageState extends State<EmpleadoDetailPage> {
                         const SizedBox(height: 16),
 
                         // Sección (Solo si es OPERATIVO)
-                        if (_selectedTipo == 'OPERATIVO') ...[
+                        if (_selectedTipo == 'OPERATIVO' || _selectedTipo == 'LIDER') ...[
                           DropdownButtonFormField<String>(
                             value:
                                 _allSecciones.any(
@@ -576,6 +790,7 @@ class _EmpleadoDetailPageState extends State<EmpleadoDetailPage> {
                       ),
 
                       if (_empleado!.tipo == 'OPERATIVO' ||
+                          _empleado!.tipo == 'LIDER' ||
                           _empleado!.tipo == null) ...[
                         const SizedBox(height: 12),
                         _InfoRow(
@@ -617,7 +832,9 @@ class _EmpleadoDetailPageState extends State<EmpleadoDetailPage> {
                         const Icon(Icons.fingerprint, color: AppColors.primary),
                         const SizedBox(width: 8),
                         Text(
-                          'Datos Biométricos',
+                          _isEditing
+                              ? 'Enrolamiento Biométrico Facial'
+                              : 'Datos Biométricos',
                           style: TextStyle(
                             fontSize: 16,
                             fontWeight: FontWeight.bold,
@@ -627,9 +844,273 @@ class _EmpleadoDetailPageState extends State<EmpleadoDetailPage> {
                       ],
                     ),
                     const SizedBox(height: 16),
-                    if (tieneVector) ...[
+                    if (_isEditing) ...[
                       Text(
-                        'Vector facial de 128 dimensiones registrado. Listo para autenticación local en modo Tótem sin conexión a internet.',
+                        'El Tótem enviará la foto de la cámara de forma segura a la API de Node.js en internet para validarla y generar su vector de 128 flotantes.',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                      const SizedBox(height: 20),
+
+                      // Caja interactiva de cámara y vista previa
+                      Center(
+                        child: Container(
+                          width: double.infinity,
+                          height: 240,
+                          decoration: BoxDecoration(
+                            color: Theme.of(context).scaffoldBackgroundColor,
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(
+                              color: _biometricStatusColor.withValues(alpha: 0.5),
+                              width: 2,
+                            ),
+                          ),
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(14),
+                            child: Stack(
+                              alignment: Alignment.center,
+                              children: [
+                                // 1. Mostrar Cámara Activa si está inicializada
+                                if (_isCameraInitialized &&
+                                    _cameraController != null &&
+                                    _capturedImage == null)
+                                  Positioned.fill(
+                                    child: AspectRatio(
+                                      aspectRatio:
+                                          _cameraController!.value.aspectRatio,
+                                      child: CameraPreview(_cameraController!),
+                                    ),
+                                  ),
+
+                                // 2. Mostrar la foto capturada o seleccionada si existe
+                                if (_capturedImage != null)
+                                  Positioned.fill(
+                                    child: kIsWeb
+                                        ? Image.network(
+                                            _capturedImage!.path,
+                                            fit: BoxFit.cover,
+                                          )
+                                        : Image.file(
+                                            File(_capturedImage!.path),
+                                            fit: BoxFit.cover,
+                                          ),
+                                  ),
+
+                                // 3. Overlay para estado de procesamiento/cargando
+                                if (_enrolando || _initializingCamera) ...[
+                                  Positioned.fill(
+                                    child: Container(color: Colors.black54),
+                                  ),
+                                  Column(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      CircularProgressIndicator(
+                                        color: _biometricStatusColor,
+                                      ),
+                                      const SizedBox(height: 16),
+                                      Padding(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 16,
+                                        ),
+                                        child: Text(
+                                          _biometricStatusText,
+                                          style: const TextStyle(
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.bold,
+                                            color: Colors.white,
+                                          ),
+                                          textAlign: TextAlign.center,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ]
+                                // 4. Estado de éxito (Rostro registrado)
+                                else if (_rostroRegistrado && _capturedImage != null) ...[
+                                  Positioned.fill(
+                                    child: Container(color: Colors.black38),
+                                  ),
+                                  Column(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Icon(
+                                        Icons.check_circle,
+                                        size: 54,
+                                        color: _biometricStatusColor,
+                                      ),
+                                      const SizedBox(height: 10),
+                                      Padding(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 16,
+                                        ),
+                                        child: Text(
+                                          _biometricStatusText,
+                                          style: const TextStyle(
+                                            fontSize: 13,
+                                            fontWeight: FontWeight.bold,
+                                            color: Colors.white,
+                                          ),
+                                          textAlign: TextAlign.center,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ]
+                                // 5. Estado inicial (Esperando foto)
+                                else if (!_isCameraInitialized &&
+                                    _capturedImage == null) ...[
+                                  Column(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      const Icon(
+                                        Icons.face,
+                                        size: 54,
+                                        color: AppColors.textDisabled,
+                                      ),
+                                      const SizedBox(height: 10),
+                                      Text(
+                                        _biometricStatusText,
+                                        style: TextStyle(
+                                          fontSize: 13,
+                                          color: _biometricStatusColor,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+
+                                // Overlay estético de marco/mira de escaneo facial cuando la cámara está activa
+                                if (_isCameraInitialized &&
+                                    _cameraController != null &&
+                                    _capturedImage == null &&
+                                    !_enrolando)
+                                  Positioned.fill(
+                                    child: Container(
+                                      decoration: BoxDecoration(
+                                        border: Border.all(
+                                          color: AppColors.primary.withValues(
+                                            alpha: 0.4,
+                                          ),
+                                          width: 3,
+                                        ),
+                                        borderRadius: BorderRadius.circular(14),
+                                      ),
+                                      child: Center(
+                                        child: Container(
+                                          width: 140,
+                                          height: 140,
+                                          decoration: BoxDecoration(
+                                            border: Border.all(
+                                              color: AppColors.secondary
+                                                  .withValues(alpha: 0.8),
+                                              width: 2,
+                                              style: BorderStyle.solid,
+                                            ),
+                                            shape: BoxShape.circle,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+
+                      // Botones de acción dinámicos
+                      if (_isCameraInitialized &&
+                          _cameraController != null &&
+                          _capturedImage == null) ...[
+                        Row(
+                          children: [
+                            Expanded(
+                              child: ElevatedButton.icon(
+                                onPressed: _enrolando ? null : _capturarFoto,
+                                icon: const Icon(Icons.camera),
+                                label: const Text('Tomar Foto'),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: AppColors.primary,
+                                  foregroundColor: Colors.white,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: OutlinedButton.icon(
+                                onPressed: _enrolando ? null : _cancelarAcciones,
+                                icon: const Icon(Icons.cancel),
+                                label: const Text('Cancelar'),
+                                style: OutlinedButton.styleFrom(
+                                  side: const BorderSide(
+                                    color: AppColors.error,
+                                  ),
+                                  foregroundColor: AppColors.error,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ] else ...[
+                        Row(
+                          children: [
+                            Expanded(
+                              child: OutlinedButton.icon(
+                                onPressed: _enrolando
+                                    ? null
+                                    : _initializeCamera,
+                                icon: const Icon(Icons.camera_alt_outlined),
+                                label: Text(
+                                  _rostroRegistrado
+                                      ? 'Re-tomar Foto'
+                                      : 'Activar Cámara',
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: OutlinedButton.icon(
+                                onPressed: _enrolando
+                                    ? null
+                                    : _seleccionarDeGaleria,
+                                icon: const Icon(Icons.photo_library_outlined),
+                                label: Text(
+                                  _rostroRegistrado
+                                      ? 'Subir Otra'
+                                      : 'Subir Foto',
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        if (_rostroRegistrado && _capturedImage != null) ...[
+                          const SizedBox(height: 12),
+                          SizedBox(
+                            width: double.infinity,
+                            child: OutlinedButton.icon(
+                              onPressed: _cancelarAcciones,
+                              icon: const Icon(Icons.refresh),
+                              label: const Text('Limpiar Captura'),
+                              style: OutlinedButton.styleFrom(
+                                side: BorderSide(color: _biometricStatusColor),
+                                foregroundColor: _biometricStatusColor,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
+                      const SizedBox(height: 16),
+                    ],
+
+                    // Vector preview (either existing or new vector)
+                    if (_newVectorBiometrico != null || (tieneVector && !_isEditing)) ...[
+                      Text(
+                        _newVectorBiometrico != null
+                            ? 'Nuevo vector facial de 128 dimensiones generado. Guarde los cambios para registrarlo.'
+                            : 'Vector facial de 128 dimensiones registrado. Listo para autenticación local en modo Tótem sin conexión a internet.',
                         style: TextStyle(
                           fontSize: 13,
                           color: Theme.of(context).colorScheme.onSurfaceVariant,
@@ -650,9 +1131,9 @@ class _EmpleadoDetailPageState extends State<EmpleadoDetailPage> {
                         child: Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: List.generate(64, (index) {
+                            final vectorSource = _newVectorBiometrico ?? _empleado!.mapaVectorFoto;
                             // Muestra una barra proporcional a los valores del vector
-                            final val = _empleado!.mapaVectorFoto[index * 2]
-                                .abs();
+                            final val = vectorSource[index * 2].abs();
                             final h = (val * 30).clamp(2.0, 32.0);
                             return Container(
                               width: 3,
@@ -675,9 +1156,17 @@ class _EmpleadoDetailPageState extends State<EmpleadoDetailPage> {
                           ),
                         ),
                       ),
-                    ] else ...[
+                    ] else if (!_isEditing) ...[
                       Text(
                         'Este empleado no tiene datos faciales enrolados en este dispositivo. Para que pueda marcar asistencia en el Tótem, debe registrar su rostro desde la opción de Editar o Registrar Nuevo Empleado.',
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ] else if (_newVectorBiometrico == null && !tieneVector) ...[
+                      Text(
+                        'No hay datos faciales registrados para este colaborador. Active la cámara o suba una foto para realizar el enrolamiento.',
                         style: TextStyle(
                           fontSize: 13,
                           color: Theme.of(context).colorScheme.onSurfaceVariant,
