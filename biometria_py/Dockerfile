@@ -22,12 +22,16 @@ RUN pip install --no-cache-dir --upgrade pip && \
 COPY prewarm.py .
 RUN python prewarm.py && rm prewarm.py
 
-# Copiar el código fuente (incluyendo el conector de base de datos)
-COPY app.py database.py .
+# Copiar el código fuente modularizado
+COPY database.py main.py ./
+COPY core/ ./core/
+COPY models/ ./models/
+COPY routers/ ./routers/
+COPY services/ ./services/
 
 # Crear carpeta de caras temporales y ajustar permisos
 RUN mkdir -p temp_faces && chmod 777 temp_faces
 
 EXPOSE 5000
 
-CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "5000"]
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "5000"]

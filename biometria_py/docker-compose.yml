@@ -12,10 +12,10 @@ services:
     environment:
       - DEEPFACE_HOME=/app
       - DB_SERVER=190.85.54.78
-      - DB_PORT=1433
+      - DB_PORT=9788
       - DB_USER=sa
-      - DB_PASSWORD=ADMadm1234
-      - DB_DATABASE=ARTDECON
+      - DB_PASSWORD=sql2025DEVadmin
+      - DB_DATABASE=ARTDECOM
     volumes:
       - biometria_temp_faces:/app/temp_faces
       - ./fotos_empleados:/app/fotos_empleados

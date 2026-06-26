@@ -24,8 +24,20 @@ class EmpleadoModel extends Empleado {
     if (map['mapa_vector_foto'] != null) {
       final raw = map['mapa_vector_foto'] as String;
       if (raw.isNotEmpty) {
-        final list = jsonDecode(raw) as List;
-        vector = list.map((e) => (e as num).toDouble()).toList();
+        try {
+          final list = jsonDecode(raw) as List;
+          if (list.length == 512) {
+            vector = list.map((e) => (e as num).toDouble()).toList();
+          } else {
+            print(
+              '[EmpleadoModel] Omitiendo vector de ${list.length} dimensiones para cédula ${map['cedula']} (se requieren 512).',
+            );
+          }
+        } catch (e) {
+          print(
+            '[EmpleadoModel] Error al parsear vector facial para cédula ${map['cedula']}: $e',
+          );
+        }
       }
     }
     return EmpleadoModel(

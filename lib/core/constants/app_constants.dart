@@ -1,7 +1,7 @@
 class AppConstants {
-  // Reconocimiento facial
-  static const double faceMatchThreshold = 0.6;
-  static const int faceVectorDimensions = 128;
+  // Reconocimiento facial (ArcFace 512-dimensiones)
+  static const double faceMatchThreshold = 0.68;
+  static const int faceVectorDimensions = 512;
 
   // Horarios
   static const int toleranciaRetardoMinutos = 15;

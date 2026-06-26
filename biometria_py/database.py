@@ -1,12 +1,12 @@
 import os
 import pymssql
 
-# Credenciales por defecto para base de datos central '00' (ARTDECON)
+# Credenciales por defecto para base de datos central '00' (ARTDECOM)
 DB_SERVER = os.getenv("DB_SERVER", "190.85.54.78")
 DB_USER = os.getenv("DB_USER", "sa")
-DB_PASSWORD = os.getenv("DB_PASSWORD", "ADMadm1234")
-DB_DATABASE = os.getenv("DB_DATABASE", "ARTDECON")
-DB_PORT = int(os.getenv("DB_PORT", "1433"))
+DB_PASSWORD = os.getenv("DB_PASSWORD", "sql2025DEVadmin")
+DB_DATABASE = os.getenv("DB_DATABASE", "ARTDECOM")
+DB_PORT = int(os.getenv("DB_PORT", "9788"))
 
 def get_db_connection():
     """

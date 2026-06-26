@@ -19,5 +19,5 @@ class ApiConstants {
 
   // Timeouts
   static const int connectTimeoutMs = 10000;
-  static const int receiveTimeoutMs = 30000;
+  static const int receiveTimeoutMs = 60000;
 }
