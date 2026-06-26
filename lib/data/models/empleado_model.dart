@@ -3,6 +3,7 @@ import '../../domain/entities/empleado.dart';
 
 class EmpleadoModel extends Empleado {
   final bool sincronizado;
+  final List<String>? fotoUris; // New field storing photo file URIs as JSON string
 
   const EmpleadoModel({
     required super.cedula,
@@ -17,6 +18,7 @@ class EmpleadoModel extends Empleado {
     super.tipo,
     super.fechaRegistro,
     this.sincronizado = false,
+    this.fotoUris,
   });
 
   factory EmpleadoModel.fromMap(Map<String, dynamic> map) {
@@ -25,19 +27,43 @@ class EmpleadoModel extends Empleado {
       final raw = map['mapa_vector_foto'] as String;
       if (raw.isNotEmpty) {
         try {
-          final list = jsonDecode(raw) as List;
-          if (list.length == 512) {
-            vector = list.map((e) => (e as num).toDouble()).toList();
-          } else {
-            print(
-              '[EmpleadoModel] Omitiendo vector de ${list.length} dimensiones para cédula ${map['cedula']} (se requieren 512).',
-            );
+          final decoded = jsonDecode(raw);
+          if (decoded is List) {
+            if (decoded.isEmpty) {
+              // Lista vacía
+            } else if (decoded[0] is List) {
+              // Es una lista de listas (múltiples vectores), la aplanamos
+              for (final sublist in decoded) {
+                if (sublist is List && sublist.length == 512) {
+                  vector.addAll(sublist.map((e) => (e as num).toDouble()));
+                }
+              }
+            } else if (decoded.length % 512 == 0) {
+              // Es una lista plana (vector único de 512 o múltiples vectores de 512 concatenados)
+              vector = decoded.map((e) => (e as num).toDouble()).toList();
+            } else {
+              print(
+                '[EmpleadoModel] Omitiendo vector de ${decoded.length} dimensiones para cédula ${map['cedula']}.',
+              );
+            }
           }
         } catch (e) {
           print(
             '[EmpleadoModel] Error al parsear vector facial para cédula ${map['cedula']}: $e',
           );
         }
+      }
+    }
+    // Decode photo URIs if present
+    List<String>? fotoList;
+    if (map['foto_uris'] != null) {
+      try {
+        final decoded = jsonDecode(map['foto_uris'] as String);
+        if (decoded is List) {
+          fotoList = decoded.map((e) => e.toString()).toList();
+        }
+      } catch (_) {
+        fotoList = null;
       }
     }
     return EmpleadoModel(
@@ -53,15 +79,14 @@ class EmpleadoModel extends Empleado {
       tipo: map['tipo'] as String?,
       fechaRegistro: map['fecha_registro'] as String?,
       sincronizado: map['sincronizado'] == 1 || map['sincronizado'] == true,
+      fotoUris: fotoList,
     );
   }
 
   Map<String, dynamic> toMap() => {
     'cedula': cedula,
     'nombre': nombre,
-    'mapa_vector_foto': mapaVectorFoto.isEmpty
-        ? null
-        : jsonEncode(mapaVectorFoto),
+    'mapa_vector_foto': mapaVectorFoto.isEmpty ? null : jsonEncode(mapaVectorFoto),
     'horario_id': horarioId,
     'fecha_ini_contrato': fechaIniContrato,
     'fecha_fin_contrato': fechaFinContrato,
@@ -71,6 +96,7 @@ class EmpleadoModel extends Empleado {
     'tipo': tipo,
     'fecha_registro': fechaRegistro,
     'sincronizado': sincronizado ? 1 : 0,
+    if (fotoUris != null && fotoUris!.isNotEmpty) 'foto_uris': jsonEncode(fotoUris),
   };
 
   factory EmpleadoModel.fromJson(Map<String, dynamic> json) =>
@@ -91,6 +117,7 @@ class EmpleadoModel extends Empleado {
     String? tipo,
     String? fechaRegistro,
     bool? sincronizado,
+    List<String>? fotoUris,
   }) => EmpleadoModel(
     cedula: cedula ?? this.cedula,
     nombre: nombre ?? this.nombre,
@@ -104,5 +131,6 @@ class EmpleadoModel extends Empleado {
     tipo: tipo ?? this.tipo,
     fechaRegistro: fechaRegistro ?? this.fechaRegistro,
     sincronizado: sincronizado ?? this.sincronizado,
+    fotoUris: fotoUris ?? this.fotoUris,
   );
 }

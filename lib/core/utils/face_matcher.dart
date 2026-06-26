@@ -3,11 +3,64 @@ import 'dart:math';
 /// Comparación local de vectores faciales (distancia euclidiana en Dart)
 /// No requiere llamar a la API - funciona completamente offline.
 class FaceMatcher {
-  /// Calcula la distancia euclidiana entre dos vectores de 128 dimensiones.
+  /// Calcula la distancia euclidiana entre dos vectores.
+  /// Si v2 (almacenado) tiene longitud múltiplo de 512, calcula la distancia
+  /// mínima entre v1 y cualquiera de los subvectores de 512 de v2.
   static double euclideanDistance(List<double> v1, List<double> v2) {
-    assert(v1.length == v2.length, 'Vectors must have the same length');
+    if (v1.isEmpty || v2.isEmpty) return double.infinity;
+
+    // Si ambos son de tamaño 512
+    if (v1.length == 512 && v2.length == 512) {
+      double sum = 0;
+      for (int i = 0; i < 512; i++) {
+        final diff = v1[i] - v2[i];
+        sum += diff * diff;
+      }
+      return sqrt(sum);
+    }
+
+    // Si v2 es múltiplo de 512 y v1 es de tamaño 512
+    if (v1.length == 512 && v2.length % 512 == 0) {
+      double minDistance = double.infinity;
+      final numVectors = v2.length ~/ 512;
+      for (int v = 0; v < numVectors; v++) {
+        double sum = 0;
+        final offset = v * 512;
+        for (int i = 0; i < 512; i++) {
+          final diff = v1[i] - v2[offset + i];
+          sum += diff * diff;
+        }
+        final dist = sqrt(sum);
+        if (dist < minDistance) {
+          minDistance = dist;
+        }
+      }
+      return minDistance;
+    }
+
+    // Si v1 es múltiplo de 512 y v2 es de tamaño 512 (caso simétrico)
+    if (v2.length == 512 && v1.length % 512 == 0) {
+      double minDistance = double.infinity;
+      final numVectors = v1.length ~/ 512;
+      for (int v = 0; v < numVectors; v++) {
+        double sum = 0;
+        final offset = v * 512;
+        for (int i = 0; i < 512; i++) {
+          final diff = v2[i] - v1[offset + i];
+          sum += diff * diff;
+        }
+        final dist = sqrt(sum);
+        if (dist < minDistance) {
+          minDistance = dist;
+        }
+      }
+      return minDistance;
+    }
+
+    // Fallback genérico por si no tienen tamaño estándar
     double sum = 0;
-    for (int i = 0; i < v1.length; i++) {
+    final len = v1.length < v2.length ? v1.length : v2.length;
+    for (int i = 0; i < len; i++) {
       final diff = v1[i] - v2[i];
       sum += diff * diff;
     }

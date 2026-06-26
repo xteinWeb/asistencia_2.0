@@ -78,6 +78,7 @@ class _RegistroEmpleadoPageState extends State<RegistroEmpleadoPage> {
   );
 
   bool _saving = false;
+  final List<double> _vectoresAcumulados = [];
 
   @override
   void initState() {
@@ -170,37 +171,34 @@ class _RegistroEmpleadoPageState extends State<RegistroEmpleadoPage> {
   }
 
   Future<void> _initializeCamera() async {
-    if (_initializingCamera || _isCameraInitialized) return;
-
     setState(() {
-      _initializingCamera = true;
-      _capturedImage = null;
       _state = const _AppState(
-        enrolando: false,
+        enrolando: true,
         rostroRegistrado: false,
         vectorBiometrico: [],
         statusText: 'Iniciando cámara...',
-        statusColor: AppColors.info,
+        statusColor: AppColors.primary,
       );
     });
 
     try {
       _cameras = await availableCameras();
       if (_cameras.isEmpty) {
-        throw Exception('No se detectaron cámaras en el dispositivo.');
+        throw Exception('No se encontraron cámaras en el dispositivo.');
       }
 
-      // Priorizar la cámara frontal para el registro del empleado
-      CameraDescription selectedCamera = _cameras.first;
+      // Buscar cámara frontal por defecto
+      CameraDescription? frontal;
       for (final cam in _cameras) {
         if (cam.lensDirection == CameraLensDirection.front) {
-          selectedCamera = cam;
+          frontal = cam;
           break;
         }
       }
 
+      final cameraSelected = frontal ?? _cameras.first;
       _cameraController = CameraController(
-        selectedCamera,
+        cameraSelected,
         ResolutionPreset.medium,
         enableAudio: false,
       );
@@ -210,13 +208,16 @@ class _RegistroEmpleadoPageState extends State<RegistroEmpleadoPage> {
       if (mounted) {
         setState(() {
           _isCameraInitialized = true;
-          _initializingCamera = false;
-          _state = const _AppState(
+          _state = _AppState(
             enrolando: false,
-            rostroRegistrado: false,
-            vectorBiometrico: [],
-            statusText: 'Cámara lista. Enmarque el rostro.',
-            statusColor: AppColors.primary,
+            rostroRegistrado: _vectoresAcumulados.isNotEmpty,
+            vectorBiometrico: _vectoresAcumulados,
+            statusText: _vectoresAcumulados.isNotEmpty
+                ? '¡Cámara lista! Puedes tomar otra foto o guardar.'
+                : 'Cámara lista. Por favor, encuadra tu rostro.',
+            statusColor: _vectoresAcumulados.isNotEmpty
+                ? AppColors.success
+                : AppColors.primary,
           );
         });
       }
@@ -226,8 +227,8 @@ class _RegistroEmpleadoPageState extends State<RegistroEmpleadoPage> {
         setState(() {
           _state = _AppState(
             enrolando: false,
-            rostroRegistrado: false,
-            vectorBiometrico: [],
+            rostroRegistrado: _vectoresAcumulados.isNotEmpty,
+            vectorBiometrico: _vectoresAcumulados,
             statusText:
                 'Error al iniciar cámara: ${e.toString().replaceAll('Exception: ', '')}',
             statusColor: AppColors.error,
@@ -239,10 +240,10 @@ class _RegistroEmpleadoPageState extends State<RegistroEmpleadoPage> {
 
   Future<void> _procesarImagen(String path) async {
     setState(() {
-      _state = const _AppState(
+      _state = _AppState(
         enrolando: true,
-        rostroRegistrado: false,
-        vectorBiometrico: [],
+        rostroRegistrado: _vectoresAcumulados.isNotEmpty,
+        vectorBiometrico: _vectoresAcumulados,
         statusText: 'Procesando imagen y validando rostro...',
         statusColor: AppColors.primary,
       );
@@ -272,17 +273,19 @@ class _RegistroEmpleadoPageState extends State<RegistroEmpleadoPage> {
 
         if (mounted) {
           setState(() {
+            _vectoresAcumulados.addAll(empTemp.mapaVectorFoto);
+            final numFotos = _vectoresAcumulados.length ~/ 512;
             _state = _AppState(
               enrolando: false,
               rostroRegistrado: true,
-              vectorBiometrico: empTemp.mapaVectorFoto,
-              statusText: '¡ROSTRO CAPTURADO Y VALIDADO CON API EXITOSAMENTE!',
+              vectorBiometrico: _vectoresAcumulados,
+              statusText: '¡Foto $numFotos registrada! Puedes tomar otra foto para mayor precisión o guardar ahora.',
               statusColor: AppColors.success,
             );
           });
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('¡Rostro validado en el servidor con éxito!'),
+            SnackBar(
+              content: Text('¡Foto ${_vectoresAcumulados.length ~/ 512} validada con éxito!'),
               backgroundColor: AppColors.success,
             ),
           );
@@ -295,25 +298,25 @@ class _RegistroEmpleadoPageState extends State<RegistroEmpleadoPage> {
         await Future.delayed(const Duration(milliseconds: 1500));
         final random = Random();
         final mockVector = List.generate(
-          128,
+          512,
           (_) => (random.nextDouble() * 2 - 1) * 0.4,
         );
 
         if (mounted) {
           setState(() {
+            _vectoresAcumulados.addAll(mockVector);
+            final numFotos = _vectoresAcumulados.length ~/ 512;
             _state = _AppState(
               enrolando: false,
               rostroRegistrado: true,
-              vectorBiometrico: mockVector,
-              statusText: '¡ROSTRO CAPTURADO CORRECTAMENTE (SIMULADO OFFLINE)!',
+              vectorBiometrico: _vectoresAcumulados,
+              statusText: '¡Foto $numFotos registrada (Simulado)! Puedes tomar otra foto o guardar.',
               statusColor: AppColors.success,
             );
           });
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text(
-                '¡Firma biométrica simulada de 128 floats generada localmente!',
-              ),
+            SnackBar(
+              content: Text('¡Firma biométrica simulada número ${_vectoresAcumulados.length ~/ 512} generada!'),
               backgroundColor: AppColors.success,
             ),
           );
@@ -325,8 +328,8 @@ class _RegistroEmpleadoPageState extends State<RegistroEmpleadoPage> {
           _capturedImage = null;
           _state = _AppState(
             enrolando: false,
-            rostroRegistrado: false,
-            vectorBiometrico: [],
+            rostroRegistrado: _vectoresAcumulados.isNotEmpty,
+            vectorBiometrico: _vectoresAcumulados,
             statusText:
                 'Error en validación de rostro: ${e.toString().replaceAll('Exception: ', '')}',
             statusColor: AppColors.error,
@@ -391,6 +394,7 @@ class _RegistroEmpleadoPageState extends State<RegistroEmpleadoPage> {
   Future<void> _cancelarAcciones() async {
     await _disposeCamera();
     setState(() {
+      _vectoresAcumulados.clear();
       _capturedImage = null;
       _state = const _AppState(
         enrolando: false,

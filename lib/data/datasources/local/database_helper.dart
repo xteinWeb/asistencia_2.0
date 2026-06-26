@@ -144,6 +144,7 @@ class DatabaseHelper {
         cedula              TEXT PRIMARY KEY,
         nombre              TEXT NOT NULL,
         mapa_vector_foto    TEXT,
+        foto_uris           TEXT,
         horario_id          TEXT,
         fecha_ini_contrato  TEXT,
         fecha_fin_contrato  TEXT,
@@ -564,6 +565,14 @@ class DatabaseHelper {
         debugPrint('Error al migrar tablas a version 15: $e');
       }
     }
+    if (oldVersion < 16) {
+      try {
+        await db.execute('ALTER TABLE ${DbConstants.tableEmpleados} ADD COLUMN foto_uris TEXT');
+        debugPrint('[SQLite] Added foto_uris column to empleados table.');
+      } catch (e) {
+        debugPrint('Error adding foto_uris column: $e');
+      }
+    }
   }
 
   Future<void> _seedDefaultConfig(Database db) async {
@@ -683,6 +692,7 @@ class DatabaseHelper {
     }
 
     final db = await database;
+    // Use toMap which already handles foto_uris when present
     return db.update(
       DbConstants.tableEmpleados,
       empleado.toMap(),

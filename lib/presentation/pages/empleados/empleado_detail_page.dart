@@ -50,10 +50,12 @@ class _EmpleadoDetailPageState extends State<EmpleadoDetailPage> {
 
   // Variables de biometría en edición
   List<double>? _newVectorBiometrico;
+  final List<double> _vectoresAcumulados = [];
   bool _enrolando = false;
   String _biometricStatusText = 'Esperando captura de rostro';
   Color _biometricStatusColor = Colors.grey;
   bool _rostroRegistrado = false;
+  List<String>? _photoUris; // List to store photo URIs
   XFile? _capturedImage;
   CameraController? _cameraController;
   List<CameraDescription> _cameras = [];
@@ -91,6 +93,7 @@ class _EmpleadoDetailPageState extends State<EmpleadoDetailPage> {
   Future<void> _resetBiometricsEditingState() async {
     await _disposeCamera();
     setState(() {
+      _vectoresAcumulados.clear();
       _newVectorBiometrico = null;
       _enrolando = false;
       _biometricStatusText = 'Esperando captura de rostro';
@@ -137,7 +140,9 @@ class _EmpleadoDetailPageState extends State<EmpleadoDetailPage> {
         setState(() {
           _isCameraInitialized = true;
           _initializingCamera = false;
-          _biometricStatusText = 'Cámara lista. Enmarque el rostro.';
+          _biometricStatusText = _vectoresAcumulados.isNotEmpty
+              ? 'Cámara lista. Puedes tomar otra foto (${_vectoresAcumulados.length ~/ 512} registradas) o guardar.'
+              : 'Cámara lista. Enmarque el rostro.';
           _biometricStatusColor = AppColors.primary;
         });
       }
@@ -169,15 +174,22 @@ class _EmpleadoDetailPageState extends State<EmpleadoDetailPage> {
 
       if (mounted) {
         setState(() {
-          _newVectorBiometrico = vector;
+          _vectoresAcumulados.addAll(vector);
+          _newVectorBiometrico = _vectoresAcumulados;
+          
+          if (_capturedImage != null) {
+            _photoUris ??= [];
+            _photoUris!.add(_capturedImage!.path);
+          }
           _enrolando = false;
           _rostroRegistrado = true;
-          _biometricStatusText = '¡ROSTRO PROCESADO Y VECTOR GENERADO EXITOSAMENTE!';
+          final numFotos = _vectoresAcumulados.length ~/ 512;
+          _biometricStatusText = '¡Foto $numFotos registrada! Puedes tomar otra foto para mayor precisión o guardar ahora.';
           _biometricStatusColor = AppColors.success;
         });
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('¡Rostro validado en el servidor con éxito!'),
+          SnackBar(
+            content: Text('¡Foto ${_vectoresAcumulados.length ~/ 512} validada con éxito!'),
             backgroundColor: AppColors.success,
           ),
         );
@@ -249,8 +261,11 @@ class _EmpleadoDetailPageState extends State<EmpleadoDetailPage> {
   Future<void> _cancelarAcciones() async {
     await _disposeCamera();
     setState(() {
+      _vectoresAcumulados.clear();
+      _newVectorBiometrico = null;
       _capturedImage = null;
       _enrolando = false;
+      _rostroRegistrado = false;
       _biometricStatusText = 'Esperando captura de rostro';
       _biometricStatusColor = Colors.grey;
     });
@@ -262,6 +277,7 @@ class _EmpleadoDetailPageState extends State<EmpleadoDetailPage> {
       final emp = await _db.getEmpleadoByCedula(widget.cedula);
       if (emp != null) {
         _empleado = emp;
+        _photoUris = emp.fotoUris;
         if (emp.horarioId != null) {
           final h = await _db.getHorarioById(emp.horarioId!);
           if (h != null) _horario = h;
@@ -271,11 +287,9 @@ class _EmpleadoDetailPageState extends State<EmpleadoDetailPage> {
         }
         _registros = await _db.getRegistrosPorCedula(widget.cedula);
 
-        // Cargar listas completas para la edición
         _allHorarios = await _db.getAllHorarios();
         _allSecciones = await _db.getSecciones();
 
-        // Inicializar controladores con la información actual
         _nombreCtrl.text = emp.nombre;
         _fechaIniCtrl.text = emp.fechaIniContrato ?? '';
         _fechaFinCtrl.text = emp.fechaFinContrato ?? '';
@@ -299,6 +313,18 @@ class _EmpleadoDetailPageState extends State<EmpleadoDetailPage> {
   Future<void> _saveEmployeeChanges() async {
     if (!_formKey.currentState!.validate()) return;
 
+    if (!_rostroRegistrado) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Por favor, registre y valide los datos faciales antes de guardar.',
+          ),
+          backgroundColor: AppColors.warning,
+        ),
+      );
+      return;
+    }
+
     setState(() => _loading = true);
     try {
       final updated = _empleado!.copyWith(
@@ -314,6 +340,7 @@ class _EmpleadoDetailPageState extends State<EmpleadoDetailPage> {
         tipo: _selectedTipo,
         sincronizado: false,
         mapaVectorFoto: _newVectorBiometrico ?? _empleado!.mapaVectorFoto,
+        fotoUris: _photoUris,
       );
 
       final success = await _db.updateEmpleado(updated);
@@ -359,6 +386,7 @@ class _EmpleadoDetailPageState extends State<EmpleadoDetailPage> {
     }
   }
 
+  // Returns the appropriate color for a given registro tipo
   Color _getTipoRegistroColor(String tipo) {
     switch (tipo.toUpperCase()) {
       case 'NORMAL':
@@ -443,11 +471,16 @@ class _EmpleadoDetailPageState extends State<EmpleadoDetailPage> {
                   _selectedTipo = (rawTipo == 'OPERATIVO' || rawTipo == 'ADMINISTRATIVO' || rawTipo == 'LIDER') ? rawTipo : 'OPERATIVO';
                   _selectedSeccionId = _empleado!.idSeccion;
 
-                  // Initialize biometric editing states
+                  _vectoresAcumulados.clear();
+                  _photoUris = List<String>.from(_empleado!.fotoUris ?? []);
+                  if (tieneVector) {
+                    _vectoresAcumulados.addAll(_empleado!.mapaVectorFoto);
+                  }
                   _newVectorBiometrico = null;
                   _rostroRegistrado = tieneVector;
+                  final numFotos = _vectoresAcumulados.length ~/ 512;
                   _biometricStatusText = tieneVector
-                      ? 'Rostro ya registrado. Puede re-tomar o subir otra foto si desea actualizarlo.'
+                      ? 'Rostro ya registrado ($numFotos fotos). Puede re-tomar o subir otra foto si desea actualizarlo.'
                       : 'Esperando captura de rostro';
                   _biometricStatusColor = tieneVector ? AppColors.success : Colors.grey;
                 });
@@ -459,7 +492,6 @@ class _EmpleadoDetailPageState extends State<EmpleadoDetailPage> {
               tooltip: 'Guardar Cambios',
               onPressed: _saveEmployeeChanges,
             ),
-
             IconButton(
               icon: const Icon(Icons.close_rounded, color: Colors.white),
               tooltip: 'Cancelar',
@@ -476,7 +508,6 @@ class _EmpleadoDetailPageState extends State<EmpleadoDetailPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Ficha principal del empleado
             if (_isEditing)
               Form(
                 key: _formKey,
@@ -486,7 +517,6 @@ class _EmpleadoDetailPageState extends State<EmpleadoDetailPage> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        // Cédula y Avatar (Solo lectura)
                         Row(
                           children: [
                             CircleAvatar(
@@ -495,12 +525,8 @@ class _EmpleadoDetailPageState extends State<EmpleadoDetailPage> {
                                   ? AppColors.success.withValues(alpha: 0.1)
                                   : AppColors.warning.withValues(alpha: 0.1),
                               child: Icon(
-                                tieneVector
-                                    ? Icons.face
-                                    : Icons.face_retouching_off,
-                                color: tieneVector
-                                    ? AppColors.success
-                                    : AppColors.warning,
+                                tieneVector ? Icons.face : Icons.face_retouching_off,
+                                color: tieneVector ? AppColors.success : AppColors.warning,
                                 size: 38,
                               ),
                             ),
@@ -522,10 +548,7 @@ class _EmpleadoDetailPageState extends State<EmpleadoDetailPage> {
                                     style: TextStyle(
                                       fontSize: 18,
                                       fontWeight: FontWeight.bold,
-                                      color: Theme.of(context)
-                                          .colorScheme
-                                          .onSurface
-                                          .withValues(alpha: 0.6),
+                                      color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
                                     ),
                                   ),
                                 ],
@@ -534,8 +557,6 @@ class _EmpleadoDetailPageState extends State<EmpleadoDetailPage> {
                           ],
                         ),
                         const Divider(height: 32),
-
-                        // Nombre
                         TextFormField(
                           controller: _nombreCtrl,
                           readOnly: true,
@@ -546,41 +567,20 @@ class _EmpleadoDetailPageState extends State<EmpleadoDetailPage> {
                           ),
                         ),
                         const SizedBox(height: 16),
-
-                        // Horario
                         DropdownButtonFormField<String>(
-                          value:
-                              _allHorarios.any(
-                                (h) => h.idHorario == _selectedHorarioId,
-                              )
-                              ? _selectedHorarioId
-                              : null,
+                          value: _allHorarios.any((h) => h.idHorario == _selectedHorarioId) ? _selectedHorarioId : null,
                           decoration: const InputDecoration(
                             labelText: 'Horario Asignado',
                             prefixIcon: Icon(Icons.schedule),
                             border: OutlineInputBorder(),
                           ),
                           items: [
-                            const DropdownMenuItem<String>(
-                              value: null,
-                              child: Text('Sin horario asignado'),
-                            ),
-                            ..._allHorarios.map((h) {
-                              return DropdownMenuItem<String>(
-                                value: h.idHorario,
-                                child: Text('${h.descripcion}'),
-                              );
-                            }),
+                            const DropdownMenuItem<String>(value: null, child: Text('Sin horario asignado')),
+                            ..._allHorarios.map((h) => DropdownMenuItem<String>(value: h.idHorario, child: Text('${h.descripcion}'))),
                           ],
-                          onChanged: (val) {
-                            setState(() {
-                              _selectedHorarioId = val;
-                            });
-                          },
+                          onChanged: (val) => setState(() => _selectedHorarioId = val),
                         ),
                         const SizedBox(height: 16),
-
-                        // Tipo
                         DropdownButtonFormField<String>(
                           value: _selectedTipo,
                           decoration: const InputDecoration(
@@ -589,66 +589,32 @@ class _EmpleadoDetailPageState extends State<EmpleadoDetailPage> {
                             border: OutlineInputBorder(),
                           ),
                           items: const [
-                            DropdownMenuItem<String>(
-                              value: 'OPERATIVO',
-                              child: Text('OPERATIVO'),
-                            ),
-                            DropdownMenuItem<String>(
-                              value: 'ADMINISTRATIVO',
-                              child: Text('ADMINISTRATIVO'),
-                            ),
-                            DropdownMenuItem<String>(
-                              value: 'LIDER',
-                              child: Text('LIDER'),
-                            ),
+                            DropdownMenuItem<String>(value: 'OPERATIVO', child: Text('OPERATIVO')),
+                            DropdownMenuItem<String>(value: 'ADMINISTRATIVO', child: Text('ADMINISTRATIVO')),
+                            DropdownMenuItem<String>(value: 'LIDER', child: Text('LIDER')),
                           ],
-                          onChanged: (val) {
-                            setState(() {
-                              _selectedTipo = val;
-                              if (val == 'ADMINISTRATIVO') {
-                                _selectedSeccionId = null;
-                              }
-                            });
-                          },
+                          onChanged: (val) => setState(() {
+                            _selectedTipo = val;
+                            if (val == 'ADMINISTRATIVO') _selectedSeccionId = null;
+                          }),
                         ),
                         const SizedBox(height: 16),
-
-                        // Sección (Solo si es OPERATIVO)
                         if (_selectedTipo == 'OPERATIVO' || _selectedTipo == 'LIDER') ...[
                           DropdownButtonFormField<String>(
-                            value:
-                                _allSecciones.any(
-                                  (s) => s['id_seccion'] == _selectedSeccionId,
-                                )
-                                ? _selectedSeccionId
-                                : null,
+                            value: _allSecciones.any((s) => s['id_seccion'] == _selectedSeccionId) ? _selectedSeccionId : null,
                             decoration: const InputDecoration(
                               labelText: 'Sección Asignada',
                               prefixIcon: Icon(Icons.view_quilt_outlined),
                               border: OutlineInputBorder(),
                             ),
                             items: [
-                              const DropdownMenuItem<String>(
-                                value: null,
-                                child: Text('Sin sección asignada'),
-                              ),
-                              ..._allSecciones.map((s) {
-                                return DropdownMenuItem<String>(
-                                  value: s['id_seccion'] as String?,
-                                  child: Text(s['descripcion'] as String),
-                                );
-                              }),
+                              const DropdownMenuItem<String>(value: null, child: Text('Sin sección asignada')),
+                              ..._allSecciones.map((s) => DropdownMenuItem<String>(value: s['id_seccion'] as String?, child: Text(s['descripcion'] as String))),
                             ],
-                            onChanged: (val) {
-                              setState(() {
-                                _selectedSeccionId = val;
-                              });
-                            },
+                            onChanged: (val) => setState(() => _selectedSeccionId = val),
                           ),
                           const SizedBox(height: 16),
                         ],
-
-                        // Inicio Contrato
                         TextFormField(
                           controller: _fechaIniCtrl,
                           decoration: const InputDecoration(
@@ -659,25 +625,16 @@ class _EmpleadoDetailPageState extends State<EmpleadoDetailPage> {
                           ),
                           readOnly: true,
                           onTap: () async {
-                            final initial =
-                                DateTime.tryParse(_fechaIniCtrl.text) ??
-                                DateTime.now();
                             final picked = await showDatePicker(
                               context: context,
-                              initialDate: initial,
+                              initialDate: DateTime.tryParse(_fechaIniCtrl.text) ?? DateTime.now(),
                               firstDate: DateTime(2000),
                               lastDate: DateTime(2100),
                             );
-                            if (picked != null) {
-                              _fechaIniCtrl.text = DateFormat(
-                                'yyyy-MM-dd',
-                              ).format(picked);
-                            }
+                            if (picked != null) _fechaIniCtrl.text = DateFormat('yyyy-MM-dd').format(picked);
                           },
                         ),
                         const SizedBox(height: 16),
-
-                        // Fin Contrato
                         TextFormField(
                           controller: _fechaFinCtrl,
                           decoration: InputDecoration(
@@ -686,32 +643,18 @@ class _EmpleadoDetailPageState extends State<EmpleadoDetailPage> {
                             border: const OutlineInputBorder(),
                             hintText: 'Indefinido',
                             suffixIcon: _fechaFinCtrl.text.isNotEmpty
-                                ? IconButton(
-                                    icon: const Icon(Icons.clear),
-                                    onPressed: () {
-                                      setState(() {
-                                        _fechaFinCtrl.clear();
-                                      });
-                                    },
-                                  )
+                                ? IconButton(icon: const Icon(Icons.clear), onPressed: () => setState(() => _fechaFinCtrl.clear()))
                                 : null,
                           ),
                           readOnly: true,
                           onTap: () async {
-                            final initial =
-                                DateTime.tryParse(_fechaFinCtrl.text) ??
-                                DateTime.now();
                             final picked = await showDatePicker(
                               context: context,
-                              initialDate: initial,
+                              initialDate: DateTime.tryParse(_fechaFinCtrl.text) ?? DateTime.now(),
                               firstDate: DateTime(2000),
                               lastDate: DateTime(2100),
                             );
-                            if (picked != null) {
-                              _fechaFinCtrl.text = DateFormat(
-                                'yyyy-MM-dd',
-                              ).format(picked);
-                            }
+                            if (picked != null) _fechaFinCtrl.text = DateFormat('yyyy-MM-dd').format(picked);
                           },
                         ),
                       ],
@@ -729,98 +672,39 @@ class _EmpleadoDetailPageState extends State<EmpleadoDetailPage> {
                         children: [
                           CircleAvatar(
                             radius: 36,
-                            backgroundColor: tieneVector
-                                ? AppColors.success.withValues(alpha: 0.1)
-                                : AppColors.warning.withValues(alpha: 0.1),
-                            child: Icon(
-                              tieneVector
-                                  ? Icons.face
-                                  : Icons.face_retouching_off,
-                              color: tieneVector
-                                  ? AppColors.success
-                                  : AppColors.warning,
-                              size: 38,
-                            ),
+                            backgroundColor: tieneVector ? AppColors.success.withValues(alpha: 0.1) : AppColors.warning.withValues(alpha: 0.1),
+                            child: Icon(tieneVector ? Icons.face : Icons.face_retouching_off, color: tieneVector ? AppColors.success : AppColors.warning, size: 38),
                           ),
                           const SizedBox(width: 20),
                           Expanded(
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text(
-                                  _empleado!.nombre,
-                                  style: TextStyle(
-                                    fontSize: 22,
-                                    fontWeight: FontWeight.bold,
-                                    color: Theme.of(
-                                      context,
-                                    ).colorScheme.onSurface,
-                                  ),
-                                ),
+                                Text(_empleado!.nombre, style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Theme.of(context).colorScheme.onSurface)),
                                 const SizedBox(height: 4),
-                                Text(
-                                  'Cédula: ${_empleado!.cedula}',
-                                  style: TextStyle(
-                                    fontSize: 15,
-                                    color: Theme.of(
-                                      context,
-                                    ).colorScheme.onSurfaceVariant,
-                                  ),
-                                ),
+                                Text('Cédula: ${_empleado!.cedula}', style: TextStyle(fontSize: 15, color: Theme.of(context).colorScheme.onSurfaceVariant)),
                               ],
                             ),
                           ),
                         ],
                       ),
                       const Divider(height: 32),
-
-                      // Datos de contrato y horario
-                      _InfoRow(
-                        icon: Icons.schedule,
-                        label: 'Horario Asignado',
-                        value: _horario != null
-                            ? '${_horario!.descripcion}'
-                            : 'Sin horario asignado',
-                      ),
+                      _InfoRow(icon: Icons.schedule, label: 'Horario Asignado', value: _horario != null ? '${_horario!.descripcion}' : 'Sin horario asignado'),
                       const SizedBox(height: 12),
-                      _InfoRow(
-                        icon: Icons.badge_outlined,
-                        label: 'Tipo de Empleado',
-                        value: _empleado!.tipo ?? 'No especificado',
-                      ),
-
-                      if (_empleado!.tipo == 'OPERATIVO' ||
-                          _empleado!.tipo == 'LIDER' ||
-                          _empleado!.tipo == null) ...[
+                      _InfoRow(icon: Icons.badge_outlined, label: 'Tipo de Empleado', value: _empleado!.tipo ?? 'No especificado'),
+                      if (_empleado!.tipo == 'OPERATIVO' || _empleado!.tipo == 'LIDER' || _empleado!.tipo == null) ...[
                         const SizedBox(height: 12),
-                        _InfoRow(
-                          icon: Icons.view_quilt_outlined,
-                          label: 'Sección asignada',
-                          value:
-                              _seccionDescripcion ??
-                              _empleado!.idSeccion ??
-                              'Sin sección asignada',
-                        ),
+                        _InfoRow(icon: Icons.view_quilt_outlined, label: 'Sección asignada', value: _seccionDescripcion ?? _empleado!.idSeccion ?? 'Sin sección asignada'),
                       ],
                       const SizedBox(height: 12),
-                      _InfoRow(
-                        icon: Icons.calendar_today,
-                        label: 'Inicio de Contrato',
-                        value: _empleado!.fechaIniContrato ?? 'No registrada',
-                      ),
+                      _InfoRow(icon: Icons.calendar_today, label: 'Inicio de Contrato', value: _empleado!.fechaIniContrato ?? 'No registrada'),
                       const SizedBox(height: 12),
-                      _InfoRow(
-                        icon: Icons.calendar_month,
-                        label: 'Fin de Contrato',
-                        value: _empleado!.fechaFinContrato ?? 'Indefinido',
-                      ),
+                      _InfoRow(icon: Icons.calendar_month, label: 'Fin de Contrato', value: _empleado!.fechaFinContrato ?? 'Indefinido'),
                     ],
                   ),
                 ),
               ),
             const SizedBox(height: 20),
-
-            // Tarjeta de Enrolamiento Facial
             Card(
               child: Padding(
                 padding: const EdgeInsets.all(20),
@@ -831,30 +715,11 @@ class _EmpleadoDetailPageState extends State<EmpleadoDetailPage> {
                       children: [
                         const Icon(Icons.fingerprint, color: AppColors.primary),
                         const SizedBox(width: 8),
-                        Text(
-                          _isEditing
-                              ? 'Enrolamiento Biométrico Facial'
-                              : 'Datos Biométricos',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                            color: Theme.of(context).colorScheme.onSurface,
-                          ),
-                        ),
+                        Text(_isEditing ? 'Enrolamiento Biométrico Facial' : 'Datos Biométricos', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Theme.of(context).colorScheme.onSurface)),
                       ],
                     ),
                     const SizedBox(height: 16),
                     if (_isEditing) ...[
-                      Text(
-                        'El Tótem enviará la foto de la cámara de forma segura a la API de Node.js en internet para validarla y generar su vector de 128 flotantes.',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Theme.of(context).colorScheme.onSurfaceVariant,
-                        ),
-                      ),
-                      const SizedBox(height: 20),
-
-                      // Caja interactiva de cámara y vista previa
                       Center(
                         child: Container(
                           width: double.infinity,
@@ -862,85 +727,28 @@ class _EmpleadoDetailPageState extends State<EmpleadoDetailPage> {
                           decoration: BoxDecoration(
                             color: Theme.of(context).scaffoldBackgroundColor,
                             borderRadius: BorderRadius.circular(16),
-                            border: Border.all(
-                              color: _biometricStatusColor.withValues(alpha: 0.5),
-                              width: 2,
-                            ),
+                            border: Border.all(color: _biometricStatusColor.withValues(alpha: 0.5), width: 2),
                           ),
                           child: ClipRRect(
                             borderRadius: BorderRadius.circular(14),
                             child: Stack(
                               alignment: Alignment.center,
                               children: [
-                                // 1. Mostrar Cámara Activa si está inicializada
-                                if (_isCameraInitialized &&
-                                    _cameraController != null &&
-                                    _capturedImage == null)
+                                if (_isCameraInitialized && _cameraController != null && _capturedImage == null)
                                   Positioned.fill(
-                                    child: AspectRatio(
-                                      aspectRatio:
-                                          _cameraController!.value.aspectRatio,
-                                      child: CameraPreview(_cameraController!),
-                                    ),
+                                    child: AspectRatio(aspectRatio: _cameraController!.value.aspectRatio, child: CameraPreview(_cameraController!)),
                                   ),
-
-                                // 2. Mostrar la foto capturada o seleccionada si existe
                                 if (_capturedImage != null)
                                   Positioned.fill(
-                                    child: kIsWeb
-                                        ? Image.network(
-                                            _capturedImage!.path,
-                                            fit: BoxFit.cover,
-                                          )
-                                        : Image.file(
-                                            File(_capturedImage!.path),
-                                            fit: BoxFit.cover,
-                                          ),
+                                    child: kIsWeb ? Image.network(_capturedImage!.path, fit: BoxFit.cover) : Image.file(File(_capturedImage!.path), fit: BoxFit.cover),
                                   ),
-
-                                // 3. Overlay para estado de procesamiento/cargando
                                 if (_enrolando || _initializingCamera) ...[
-                                  Positioned.fill(
-                                    child: Container(color: Colors.black54),
-                                  ),
+                                  Positioned.fill(child: Container(color: Colors.black54)),
                                   Column(
                                     mainAxisAlignment: MainAxisAlignment.center,
                                     children: [
-                                      CircularProgressIndicator(
-                                        color: _biometricStatusColor,
-                                      ),
+                                      CircularProgressIndicator(color: _biometricStatusColor),
                                       const SizedBox(height: 16),
-                                      Padding(
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 16,
-                                        ),
-                                        child: Text(
-                                          _biometricStatusText,
-                                          style: const TextStyle(
-                                            fontSize: 12,
-                                            fontWeight: FontWeight.bold,
-                                            color: Colors.white,
-                                          ),
-                                          textAlign: TextAlign.center,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ]
-                                // 4. Estado de éxito (Rostro registrado)
-                                else if (_rostroRegistrado && _capturedImage != null) ...[
-                                  Positioned.fill(
-                                    child: Container(color: Colors.black38),
-                                  ),
-                                  Column(
-                                    mainAxisAlignment: MainAxisAlignment.center,
-                                    children: [
-                                      Icon(
-                                        Icons.check_circle,
-                                        size: 54,
-                                        color: _biometricStatusColor,
-                                      ),
-                                      const SizedBox(height: 10),
                                       Padding(
                                         padding: const EdgeInsets.symmetric(
                                           horizontal: 16,
@@ -1103,14 +911,36 @@ class _EmpleadoDetailPageState extends State<EmpleadoDetailPage> {
                         ],
                       ],
                       const SizedBox(height: 16),
+if (_isEditing && _photoUris != null && _photoUris!.isNotEmpty) ...[
+  Text('Fotos registradas (${_photoUris!.length})', style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+  const SizedBox(height: 8),
+  GridView.builder(
+    shrinkWrap: true,
+    physics: const NeverScrollableScrollPhysics(),
+    gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+      crossAxisCount: 4,
+      mainAxisSpacing: 8,
+      crossAxisSpacing: 8,
+    ),
+    itemCount: _photoUris!.length,
+    itemBuilder: (context, index) {
+      final uri = _photoUris![index];
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(8),
+        child: Image.file(File(uri), fit: BoxFit.cover),
+      );
+    },
+  ),
+  const SizedBox(height: 16),
+],
                     ],
 
                     // Vector preview (either existing or new vector)
                     if (_newVectorBiometrico != null || (tieneVector && !_isEditing)) ...[
                       Text(
                         _newVectorBiometrico != null
-                            ? 'Nuevo vector facial de 128 dimensiones generado. Guarde los cambios para registrarlo.'
-                            : 'Vector facial de 128 dimensiones registrado. Listo para autenticación local en modo Tótem sin conexión a internet.',
+                            ? 'Nuevo(s) vector(es) facial(es) (${_vectoresAcumulados.length ~/ 512} foto(s)) generado(s). Guarde los cambios para registrar.'
+                            : 'Vector(es) facial(es) registrado(s) (${_empleado!.mapaVectorFoto.length ~/ 512} foto(s)). Listo para autenticación local en modo Tótem.',
                         style: TextStyle(
                           fontSize: 13,
                           color: Theme.of(context).colorScheme.onSurfaceVariant,
@@ -1133,7 +963,7 @@ class _EmpleadoDetailPageState extends State<EmpleadoDetailPage> {
                           children: List.generate(64, (index) {
                             final vectorSource = _newVectorBiometrico ?? _empleado!.mapaVectorFoto;
                             // Muestra una barra proporcional a los valores del vector
-                            final val = vectorSource[index * 2].abs();
+                            final val = (index * 2 < vectorSource.length) ? vectorSource[index * 2].abs() : 0.0;
                             final h = (val * 30).clamp(2.0, 32.0);
                             return Container(
                               width: 3,
@@ -1149,7 +979,7 @@ class _EmpleadoDetailPageState extends State<EmpleadoDetailPage> {
                       const SizedBox(height: 6),
                       const Center(
                         child: Text(
-                          'Representación gráfica de la firma facial única (64 de 128 puntos mostrados)',
+                          'Representación gráfica de la firma facial única (puntos de control mostrados)',
                           style: TextStyle(
                             fontSize: 10,
                             color: AppColors.textDisabled,
